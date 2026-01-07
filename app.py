@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import binascii
 import json
 import socket
 import base64
@@ -1182,6 +1183,81 @@ def parse_int(value, field, minimum=None, maximum=None):
     return num
 
 
+def extract_devaddr(rxpk):
+    data = rxpk.get("data")
+    if not data:
+        raise ValueError("Missing rxpk.data payload.")
+    try:
+        payload = base64.b64decode(data, validate=True)
+    except binascii.Error as exc:
+        raise ValueError("rxpk.data is not valid base64.") from exc
+    if len(payload) < 5:
+        raise ValueError("PHYPayload too short to contain a DevAddr.")
+    devaddr_le = payload[1:5]
+    return devaddr_le[::-1].hex().upper()
+
+
+def scan_logfile(logfile):
+    parsed = []
+    gateways = set()
+    devaddrs = set()
+    errors = []
+
+    for line_no, raw_line in enumerate(logfile.stream, start=1):
+        try:
+            line = raw_line.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            errors.append(f"Line {line_no}: invalid UTF-8 encoding.")
+            continue
+
+        if not line:
+            continue
+
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError as exc:
+            errors.append(f"Line {line_no}: JSON decode error ({exc}).")
+            continue
+
+        if not isinstance(rec, dict):
+            errors.append(f"Line {line_no}: expected an object.")
+            continue
+
+        gateway_eui = rec.get("gatewayEui") or rec.get("gateway_eui")
+        rxpk = rec.get("rxpk")
+        if not gateway_eui or not isinstance(rxpk, dict):
+            errors.append(f"Line {line_no}: missing gatewayEui or rxpk.")
+            continue
+
+        try:
+            normalize_gateway_eui(gateway_eui)
+        except ValueError as exc:
+            errors.append(f"Line {line_no}: {exc}")
+            continue
+
+        try:
+            devaddr = extract_devaddr(rxpk)
+        except ValueError as exc:
+            errors.append(f"Line {line_no}: {exc}")
+            continue
+
+        gateways.add(gateway_eui)
+        devaddrs.add(devaddr)
+        parsed.append({"gateway_eui": gateway_eui, "rxpk": rxpk})
+
+    return parsed, sorted(gateways), sorted(devaddrs), errors
+
+
+def format_list(label, items, limit=10):
+    if not items:
+        return f"{label}: none"
+    if len(items) <= limit:
+        return f"{label}: {', '.join(items)}"
+    remaining = len(items) - limit
+    preview = ", ".join(items[:limit])
+    return f"{label}: {preview} (+{remaining} more)"
+
+
 def render_main_page(result_lines=None, result_class="", log_lines=None):
     return render_template_string(
         HTML,
@@ -1236,77 +1312,35 @@ def replay():
     except ValueError:
         return render_main_page([f"Invalid UDP port: {port_raw}"], "error")
 
+    parsed, gateways, devaddrs, scan_errors = scan_logfile(logfile)
+    summary_lines = [
+        "Logfile scan summary:",
+        f"Uplinks (valid)={len(parsed)}",
+        format_list("Gateway EUI", gateways),
+        format_list("DevAddr (hex)", devaddrs),
+    ]
+
+    if scan_errors:
+        error_lines = summary_lines + [
+            f"Validation errors={len(scan_errors)} (replay aborted)."
+        ]
+        preview = scan_errors[:10]
+        error_lines.extend(preview)
+        if len(scan_errors) > len(preview):
+            error_lines.append(f"... (+{len(scan_errors) - len(preview)} more)")
+        return render_main_page(error_lines, "error")
+
+    if not parsed:
+        return render_main_page(summary_lines + ["No valid uplinks found."], "error")
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     total = 0
     errors = 0
 
-    # Expected: JSON lines, 1 JSON object per line:
-    # { "gatewayEui": "0102030405060708", "rxpk": { ... } }
-    for raw_line in logfile.stream:
-        try:
-            line = raw_line.decode("utf-8").strip()
-        except UnicodeDecodeError:
-            errors += 1
-            log_lines.append(
-                {
-                    "index": total + errors,
-                    "status": "Error",
-                    "gateway": None,
-                    "freq": None,
-                    "size": None,
-                    "message": f"Skipped line: invalid UTF-8 encoding (target {host}:{port}).",
-                    "css": "err",
-                }
-            )
-            continue
-
-        if not line:
-            continue
-
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError as e:
-            errors += 1
-            print("JSON error:", e, "line:", line)
-            preview = (line[:100] + "...") if len(line) > 100 else line
-            log_lines.append(
-                {
-                    "index": total + errors,
-                    "status": "Error",
-                    "gateway": None,
-                    "freq": None,
-                    "size": None,
-                    "message": f"Skipped line: JSON decode error ({e}) -- {preview}",
-                    "css": "err",
-                }
-            )
-            continue
-
-        gateway_eui = rec.get("gatewayEui") or rec.get("gateway_eui")
-        rxpk = rec.get("rxpk")
-
-        if not gateway_eui or not rxpk:
-            errors += 1
-            print("Missing gatewayEui or rxpk:", line)
-            snippet = ""
-            if isinstance(rec, dict):
-                try:
-                    snippet = json.dumps(rec)[:100]
-                except Exception:
-                    snippet = str(rec)[:100]
-            log_lines.append(
-                {
-                    "index": total + errors,
-                    "status": "Error",
-                    "gateway": gateway_eui,
-                    "freq": rxpk.get("freq") if isinstance(rxpk, dict) else None,
-                    "size": rxpk.get("size") if isinstance(rxpk, dict) else None,
-                    "message": f"Skipped line: missing gatewayEui or rxpk. {snippet}",
-                    "css": "err",
-                }
-            )
-            continue
+    for rec in parsed:
+        gateway_eui = rec["gateway_eui"]
+        rxpk = rec["rxpk"]
 
         try:
             packet = build_push_data(gateway_eui, rxpk)
@@ -1375,7 +1409,7 @@ def replay():
 
     sock.close()
 
-    result = [
+    result = summary_lines + [
         "Replay done.",
         f"Sent={total}, errors={errors}",
         f"Target={host}:{port}",
