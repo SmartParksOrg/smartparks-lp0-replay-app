@@ -38,6 +38,9 @@ This tool sends Semtech UDP `PUSH_DATA` packets. To replay against ChirpStack, u
 Gateway Bridge in Semtech UDP mode.
 
 1) In ChirpStack, create a Gateway with an EUI (for example `0102030405060708`).
+2) Create an Application and Device Profile, then add the Device(s) you expect to
+   see in the replay. For ABP devices, make sure the DevAddr / NwkSKey / AppSKey
+   match the values used in your log generator or log file.
 2) Ensure the ChirpStack Gateway Bridge is listening on UDP port `1700`
    (default for Semtech UDP).
 3) Run this app and open the web UI.
