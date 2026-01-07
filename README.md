@@ -32,6 +32,23 @@ Or from the CLI:
 python make_test_log.py
 ```
 
+## Example: ChirpStack (Semtech UDP)
+
+This tool sends Semtech UDP `PUSH_DATA` packets. To replay against ChirpStack, use the
+Gateway Bridge in Semtech UDP mode.
+
+1) In ChirpStack, create a Gateway with an EUI (for example `0102030405060708`).
+2) Ensure the ChirpStack Gateway Bridge is listening on UDP port `1700`
+   (default for Semtech UDP).
+3) Run this app and open the web UI.
+4) Set the **LoRaWAN server host** to the Gateway Bridge host (often `127.0.0.1` if
+   this app runs on the same machine) and **UDP port** to `1700`.
+5) Upload a `.jsonl` log file (or generate one), then click **Send**.
+
+Notes:
+- The `gatewayEui` in your log must match the Gateway EUI you created in ChirpStack.
+- If ChirpStack is on another host, use its IP or DNS name.
+
 ## Notes
 
 - This tool is a local-only web app intended for inspecting and replaying LoRaWAN logs.
