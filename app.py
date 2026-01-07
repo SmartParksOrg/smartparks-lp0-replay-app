@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import os
 import binascii
+import secrets
+import time
 import json
 import socket
 import base64
@@ -10,6 +12,8 @@ from flask import Flask, request, render_template_string, url_for, send_file
 import make_test_log
 
 app = Flask(__name__)
+SCAN_CACHE = {}
+SCAN_CACHE_TTL = 30 * 60
 
 STYLE_BLOCK = """
   <style>
@@ -36,7 +40,7 @@ STYLE_BLOCK = """
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 2rem;
+      padding: 1rem 2rem;
       color: #0f172a;
     }
 
@@ -44,7 +48,7 @@ STYLE_BLOCK = """
       width: min(900px, 100%);
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      gap: 0.375rem;
       align-items: center;
     }
 
@@ -54,13 +58,13 @@ STYLE_BLOCK = """
       border-radius: 24px;
       box-shadow: none;
       border: none;
-      padding: 1.5rem;
+      padding: 0.375rem;
       text-align: center;
     }
 
     .logo-card img {
-      max-width: 240px;
-      width: 50%;
+      max-width: 120px;
+      width: 25%;
       height: auto;
     }
 
@@ -411,6 +415,47 @@ STYLE_BLOCK = """
       width: 100%;
     }
 
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+
+    .loading-overlay[hidden] {
+      display: none;
+    }
+
+    .loading-card {
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+      padding: 24px 28px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      color: #0f172a;
+      font-weight: 600;
+    }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 4px solid rgba(15, 23, 42, 0.2);
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
     .log-block {
       border-radius: 20px;
       border: 1px solid var(--border);
@@ -652,6 +697,8 @@ SCRIPT_BLOCK = """
     document.addEventListener("DOMContentLoaded", () => {
       initLogTable();
       const drop = document.querySelector("[data-file-drop]");
+      const form = drop?.closest("form");
+      const overlay = document.querySelector("[data-loading-overlay]");
       const input = document.getElementById("logfile");
       const selected = document.querySelector("[data-file-selected]");
       const payloadSelect = document.querySelector("[data-payload-example]");
@@ -676,8 +723,16 @@ SCRIPT_BLOCK = """
         const updateLabel = () => {
           if (input.files && input.files.length > 0) {
             selected.textContent = input.files.length === 1 ? input.files[0].name : `${input.files.length} files selected`;
-          } else {
-            selected.textContent = "No file selected";
+          }
+        };
+        const autoScan = () => {
+          if (!input.files || input.files.length === 0) {
+            return;
+          }
+          const scanUrl = form?.dataset.scanUrl;
+          if (form && scanUrl) {
+            form.action = scanUrl;
+            form.submit();
           }
         };
 
@@ -699,13 +754,26 @@ SCRIPT_BLOCK = """
               Array.from(e.dataTransfer.files).forEach((file) => dt.items.add(file));
               input.files = dt.files;
               updateLabel();
+              autoScan();
             }
             drop.classList.remove("dragover");
           })
         );
 
-        input.addEventListener("change", updateLabel);
+        input.addEventListener("change", () => {
+          updateLabel();
+          autoScan();
+        });
         updateLabel();
+      }
+
+      if (form && overlay) {
+        form.addEventListener("submit", (event) => {
+          const submitter = event.submitter;
+          if (submitter && submitter.dataset.showLoader === "true") {
+            overlay.hidden = false;
+          }
+        });
       }
     });
   </script>
@@ -730,16 +798,16 @@ HTML = """
       <h1>LoRaWAN Log Replay</h1>
       <p class="subtitle">Replay recorded Semtech UDP uplinks towards your LoRaWAN server.</p>
 
-      <form method="POST" action="{{ replay_url }}" enctype="multipart/form-data">
+      <form method="POST" action="{{ replay_url }}" enctype="multipart/form-data" data-scan-url="{{ scan_url }}">
         <div>
           <label for="host">LoRaWAN server host</label>
-          <input id="host" name="host" type="text" value="127.0.0.1">
+          <input id="host" name="host" type="text" value="{{ form_values.host }}">
           <div class="hint">Use <code>127.0.0.1</code> or <code>localhost</code> when this app runs on the same server as your LoRaWAN stack.</div>
         </div>
 
         <div>
           <label for="port">UDP port</label>
-          <input id="port" name="port" type="number" value="1700">
+          <input id="port" name="port" type="number" value="{{ form_values.port }}">
           <div class="hint">The default Semtech UDP port is 1700.</div>
         </div>
 
@@ -748,11 +816,11 @@ HTML = """
           <div class="logfile-options">
             <div class="logfile-option">
               <h3>Upload a logfile</h3>
-              <input id="logfile" type="file" name="logfile" required style="display: none;" aria-hidden="true">
+              <input id="logfile" type="file" name="logfile" {% if not scan_token %}required{% endif %} style="display: none;" aria-hidden="true">
               <div class="file-drop" data-file-drop>
                 <div class="file-text">
                   <strong>Click to choose or drag & drop</strong>
-                  <div class="file-selected" data-file-selected>No file selected</div>
+                  <div class="file-selected" data-file-selected>{{ selected_filename or "No file selected" }}</div>
                   <div class="hint">Upload a JSON Lines file you captured earlier.</div>
                 </div>
               </div>
@@ -767,7 +835,11 @@ HTML = """
           </div>
         </div>
 
-        <button type="submit">Replay</button>
+        {% if scan_token %}
+        <input type="hidden" name="scan_token" value="{{ scan_token }}">
+        {% endif %}
+
+        <button type="submit" data-show-loader="true">Replay</button>
 
         {% if result_lines %}
         <div class="result {{ result_class }}">
@@ -835,6 +907,12 @@ HTML = """
       </details>
     </div>
     {% endif %}
+  </div>
+  <div class="loading-overlay" data-loading-overlay hidden>
+    <div class="loading-card">
+      <div class="spinner" aria-hidden="true"></div>
+      <div>Replaying uplinks…</div>
+    </div>
   </div>
   {{ script_block|safe }}
 </body>
@@ -1248,6 +1326,36 @@ def scan_logfile(logfile):
     return parsed, sorted(gateways), sorted(devaddrs), errors
 
 
+def prune_scan_cache(now=None):
+    if not SCAN_CACHE:
+        return
+    now = time.time() if now is None else now
+    expired = [token for token, entry in SCAN_CACHE.items() if now - entry["ts"] > SCAN_CACHE_TTL]
+    for token in expired:
+        del SCAN_CACHE[token]
+
+
+def store_scan_result(parsed, gateways, devaddrs, filename):
+    prune_scan_cache()
+    token = secrets.token_urlsafe(16)
+    SCAN_CACHE[token] = {
+        "parsed": parsed,
+        "gateways": gateways,
+        "devaddrs": devaddrs,
+        "filename": filename,
+        "ts": time.time(),
+    }
+    return token
+
+
+def get_scan_result(token):
+    prune_scan_cache()
+    entry = SCAN_CACHE.get(token)
+    if not entry:
+        return None
+    return entry["parsed"], entry["gateways"], entry["devaddrs"], entry["filename"]
+
+
 def format_list(label, items, limit=10):
     if not items:
         return f"{label}: none"
@@ -1258,7 +1366,21 @@ def format_list(label, items, limit=10):
     return f"{label}: {preview} (+{remaining} more)"
 
 
-def render_main_page(result_lines=None, result_class="", log_lines=None):
+def render_main_page(
+    result_lines=None,
+    result_class="",
+    log_lines=None,
+    form_values=None,
+    scan_token="",
+    selected_filename="",
+):
+    values = {
+        "host": "127.0.0.1",
+        "port": "1700",
+    }
+    if form_values:
+        values["host"] = form_values.get("host", values["host"])
+        values["port"] = form_values.get("port", values["port"])
     return render_template_string(
         HTML,
         style_block=STYLE_BLOCK,
@@ -1266,10 +1388,14 @@ def render_main_page(result_lines=None, result_class="", log_lines=None):
         logo_url=url_for("static", filename="company_logo.png"),
         favicon_url=url_for("static", filename="favicon.ico"),
         replay_url=url_for("replay"),
+        scan_url=url_for("scan"),
         generator_url=url_for("generate_log_page"),
+        form_values=values,
         result_lines=result_lines or [],
         result_class=result_class,
         log_lines=log_lines or [],
+        scan_token=scan_token,
+        selected_filename=selected_filename,
     )
 
 
@@ -1297,22 +1423,84 @@ def index():
     return render_main_page()
 
 
+@app.route("/scan", methods=["POST"])
+def scan():
+    logfile = request.files.get("logfile")
+    if not logfile:
+        return render_main_page(["Please upload a logfile."], "error", form_values=request.form)
+    selected_filename = logfile.filename or ""
+
+    parsed, gateways, devaddrs, scan_errors = scan_logfile(logfile)
+    summary_lines = [
+        "Logfile scan summary:",
+        f"Uplinks (valid)={len(parsed)}",
+        format_list("Gateway EUI", gateways),
+        format_list("DevAddr (hex)", devaddrs),
+    ]
+
+    if scan_errors:
+        error_lines = summary_lines + [
+            f"Validation errors={len(scan_errors)}."
+        ]
+        preview = scan_errors[:10]
+        error_lines.extend(preview)
+        if len(scan_errors) > len(preview):
+            error_lines.append(f"... (+{len(scan_errors) - len(preview)} more)")
+        return render_main_page(
+            error_lines,
+            "error",
+            form_values=request.form,
+            selected_filename=selected_filename,
+        )
+
+    if not parsed:
+        return render_main_page(
+            summary_lines + ["No valid uplinks found."],
+            "error",
+            form_values=request.form,
+            selected_filename=selected_filename,
+        )
+
+    scan_token = store_scan_result(parsed, gateways, devaddrs, selected_filename)
+    return render_main_page(
+        summary_lines + ["Scan complete. Ready to replay."],
+        "success",
+        form_values=request.form,
+        scan_token=scan_token,
+        selected_filename=selected_filename,
+    )
+
+
 @app.route("/replay", methods=["POST"])
 def replay():
     host = request.form.get("host", "").strip() or "127.0.0.1"
     port_raw = request.form.get("port", "1700").strip()
+    scan_token = request.form.get("scan_token", "").strip()
     logfile = request.files.get("logfile")
     log_lines = []
 
-    if not logfile:
-        return render_main_page(["Please upload a logfile."], "error")
+    if not scan_token and not logfile:
+        return render_main_page(["Please upload a logfile."], "error", form_values=request.form)
 
     try:
         port = int(port_raw)
     except ValueError:
-        return render_main_page([f"Invalid UDP port: {port_raw}"], "error")
+        return render_main_page([f"Invalid UDP port: {port_raw}"], "error", form_values=request.form)
 
-    parsed, gateways, devaddrs, scan_errors = scan_logfile(logfile)
+    selected_filename = ""
+    if scan_token:
+        cached = get_scan_result(scan_token)
+        if not cached:
+            return render_main_page(
+                ["Scan expired or not found. Please upload the logfile again."],
+                "error",
+                form_values=request.form,
+            )
+        parsed, gateways, devaddrs, selected_filename = cached
+        scan_errors = []
+    else:
+        parsed, gateways, devaddrs, scan_errors = scan_logfile(logfile)
+        selected_filename = logfile.filename if logfile else ""
     summary_lines = [
         "Logfile scan summary:",
         f"Uplinks (valid)={len(parsed)}",
@@ -1328,10 +1516,20 @@ def replay():
         error_lines.extend(preview)
         if len(scan_errors) > len(preview):
             error_lines.append(f"... (+{len(scan_errors) - len(preview)} more)")
-        return render_main_page(error_lines, "error")
+        return render_main_page(
+            error_lines,
+            "error",
+            form_values=request.form,
+            selected_filename=selected_filename,
+        )
 
     if not parsed:
-        return render_main_page(summary_lines + ["No valid uplinks found."], "error")
+        return render_main_page(
+            summary_lines + ["No valid uplinks found."],
+            "error",
+            form_values=request.form,
+            selected_filename=selected_filename,
+        )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -1414,7 +1612,14 @@ def replay():
         f"Sent={total}, errors={errors}",
         f"Target={host}:{port}",
     ]
-    return render_main_page(result, "success", log_lines=log_lines)
+    return render_main_page(
+        result,
+        "success",
+        log_lines=log_lines,
+        form_values=request.form,
+        scan_token=scan_token,
+        selected_filename=selected_filename,
+    )
 
 
 @app.route("/generate-log", methods=["GET", "POST"])
