@@ -8,12 +8,25 @@ import socket
 import base64
 import datetime
 import io
+import csv
+import subprocess
 from flask import Flask, request, render_template_string, url_for, send_file
+from werkzeug.utils import secure_filename
 import make_test_log
 
 app = Flask(__name__)
 SCAN_CACHE = {}
 SCAN_CACHE_TTL = 30 * 60
+DECODE_CACHE = {}
+DECODE_CACHE_TTL = 30 * 60
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+DECODER_DIR = os.path.join(DATA_DIR, "decoders")
+BUILTIN_DECODER_DIR = os.path.join(BASE_DIR, "decoders")
+CREDENTIALS_PATH = os.path.join(DATA_DIR, "credentials.json")
+UPLOAD_INDEX_PATH = os.path.join(DATA_DIR, "uploads.json")
 
 STYLE_BLOCK = """
   <style>
@@ -38,18 +51,20 @@ STYLE_BLOCK = """
       background: var(--bg);
       min-height: 100vh;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1rem 2rem;
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 1.5rem 2.5rem;
       color: #0f172a;
     }
 
     .outer-column {
-      width: min(900px, 100%);
+      width: 100%;
+      max-width: 1200px;
       display: flex;
       flex-direction: column;
       gap: 0.375rem;
-      align-items: center;
+      align-items: stretch;
+      margin: 0 auto;
     }
 
     .logo-card {
@@ -69,7 +84,7 @@ STYLE_BLOCK = """
     }
 
     .card {
-      width: min(900px, 100%);
+      width: 100%;
       background: var(--card-bg);
       border-radius: 24px;
       box-shadow: 0 24px 70px var(--card-shadow);
@@ -153,6 +168,28 @@ STYLE_BLOCK = """
       background: rgba(37, 99, 235, 0.05);
     }
 
+    .toggle-visibility {
+      position: absolute;
+      right: 0.4rem;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 8px;
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      color: var(--accent);
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+    }
+
+    .toggle-visibility:hover {
+      border-color: var(--accent);
+      background: rgba(37, 99, 235, 0.05);
+    }
+
     .inline-action {
       display: inline-flex;
       align-items: center;
@@ -225,6 +262,7 @@ STYLE_BLOCK = """
     input[type=number],
     input[type=file],
     input[type=datetime-local],
+    input[type=password],
     select {
       width: 100%;
       border: 1px solid var(--border);
@@ -238,10 +276,16 @@ STYLE_BLOCK = """
     input[type=number]:focus,
     input[type=file]:focus,
     input[type=datetime-local]:focus,
+    input[type=password]:focus,
     select:focus {
       outline: none;
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+
+    input[type=password] {
+      font-family: inherit;
+      letter-spacing: normal;
     }
 
     .hint {
@@ -268,6 +312,12 @@ STYLE_BLOCK = """
 
     button:active {
       transform: translateY(1px);
+    }
+
+    button:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+      transform: none;
     }
 
     .form-actions {
@@ -386,6 +436,14 @@ STYLE_BLOCK = """
     }
 
     @media (max-width: 540px) {
+      body {
+        padding: 1rem;
+      }
+
+      .card {
+        padding: 2rem 1.5rem;
+      }
+
       .card-header {
         flex-direction: column;
         align-items: flex-start;
@@ -462,7 +520,7 @@ STYLE_BLOCK = """
       background: #fff;
       box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
       padding: 1.2rem 1.4rem;
-      width: min(900px, 100%);
+      width: 100%;
     }
 
     .log-block summary {
@@ -542,6 +600,171 @@ STYLE_BLOCK = """
       color: #b91c1c;
     }
 
+    .truncate-cell {
+      max-width: 320px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+
+    .truncate-cell.expanded {
+      white-space: pre-wrap;
+      overflow: visible;
+      text-overflow: unset;
+      max-width: none;
+      cursor: zoom-out;
+    }
+
+    .truncate-cell::after {
+      content: " ⤢";
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
+
+    .truncate-cell.expanded::after {
+      content: " ⤡";
+    }
+
+    .cell-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .cell-action:hover {
+      border-color: var(--accent);
+      color: var(--accent-hover);
+    }
+
+    .detail-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      z-index: 80;
+    }
+
+    .detail-overlay[hidden] {
+      display: none;
+    }
+
+    .detail-card {
+      width: min(900px, 100%);
+      max-height: 85vh;
+      background: #fff;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      box-shadow: 0 18px 50px rgba(15, 23, 42, 0.2);
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .detail-card h2 {
+      margin: 0;
+      font-size: 1.35rem;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+      font-size: 0.95rem;
+    }
+
+    .detail-block {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem;
+      font-size: 0.9rem;
+      max-height: 30vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .detail-block pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
+      font-size: 0.85rem;
+    }
+
+    .detail-collapsible summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    .detail-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.6rem;
+    }
+
+    .detail-actions button {
+      width: auto;
+    }
+
+    .section-divider {
+      margin: 2rem 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .key-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 0.85rem;
+    }
+
+    .device-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .device-row {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem;
+      background: #f8fafc;
+    }
+
+    .table-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-top: 0.75rem;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(37, 99, 235, 0.12);
+      color: var(--accent);
+      border: 1px solid rgba(37, 99, 235, 0.2);
+      margin-left: 0.4rem;
+    }
+
     .brand-note {
       font-size: 0.95rem;
       color: #475569;
@@ -557,6 +780,29 @@ STYLE_BLOCK = """
 
     .brand-note a:hover {
       text-decoration: underline;
+    }
+
+    .progress-bar {
+      width: 220px;
+      height: 10px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-bar::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      width: 40%;
+      background: linear-gradient(90deg, rgba(37, 99, 235, 0.2), rgba(37, 99, 235, 0.9), rgba(37, 99, 235, 0.2));
+      animation: progress-slide 1.1s ease-in-out infinite;
+    }
+
+    @keyframes progress-slide {
+      0% { transform: translateX(-60%); }
+      100% { transform: translateX(160%); }
     }
   </style>
 """
@@ -610,30 +856,27 @@ SCRIPT_BLOCK = """
     }
     }
 
-    function initLogTable() {
-      const section = document.querySelector("[data-log-section]");
+    function initSortableTable(section) {
       if (!section) return;
-      const table = section.querySelector("[data-log-table]");
+      const table = section.querySelector("[data-sortable-table]");
       if (!table) return;
       const tbody = table.querySelector("tbody");
       const originalRows = Array.from(tbody.rows);
       const rowData = originalRows.map((row) => {
-        const data = {
-          index: row.dataset.index || "",
-          status: (row.dataset.status || "").toLowerCase(),
-          gateway: (row.dataset.gateway || "").toLowerCase(),
-          freq: (row.dataset.freq || "").toLowerCase(),
-          size: (row.dataset.size || "").toLowerCase(),
-          message: (row.dataset.message || "").toLowerCase(),
-        };
+        const data = {};
+        Object.keys(row.dataset || {}).forEach((key) => {
+          data[key] = (row.dataset[key] || "").toLowerCase();
+        });
         return { element: row.cloneNode(true), data };
       });
 
-      const numericColumns = new Set(["index", "freq", "size"]);
+      const numericColumns = new Set(
+        (table.dataset.numericKeys || "").split(",").filter(Boolean)
+      );
       let sortKey = null;
       let sortDir = 1;
 
-      const limitSelect = section.querySelector("[data-log-limit]");
+      const limitSelect = section.querySelector("[data-table-limit]");
 
       function apply() {
         let rows = rowData.slice();
@@ -670,9 +913,9 @@ SCRIPT_BLOCK = """
         tbody.appendChild(fragment);
       }
 
-      section.querySelectorAll("[data-log-sort]").forEach((button) => {
+      section.querySelectorAll("[data-sort-key]").forEach((button) => {
         button.addEventListener("click", () => {
-          const key = button.dataset.logSort;
+          const key = button.dataset.sortKey;
           if (sortKey === key) {
             sortDir *= -1;
           } else {
@@ -680,7 +923,7 @@ SCRIPT_BLOCK = """
             sortDir = 1;
           }
           section
-            .querySelectorAll("[data-log-sort]")
+            .querySelectorAll("[data-sort-key]")
             .forEach((btn) => btn.classList.remove("sorted-asc", "sorted-desc"));
           button.classList.add(sortDir === 1 ? "sorted-asc" : "sorted-desc");
           apply();
@@ -694,8 +937,88 @@ SCRIPT_BLOCK = """
       apply();
     }
 
+    function initTruncation(section) {
+      if (!section) return;
+      section.querySelectorAll("[data-truncate]").forEach((cell) => {
+        const full = cell.dataset.full || "";
+        if (!full || full.length <= 80) {
+          cell.textContent = full;
+          return;
+        }
+        const preview = full.slice(0, 80) + "…";
+        cell.textContent = preview;
+        cell.classList.add("truncate-cell");
+        cell.addEventListener("click", () => {
+          const isExpanded = cell.classList.toggle("expanded");
+          cell.textContent = isExpanded ? full : preview;
+        });
+      });
+    }
+
+    function initDetailOverlay(section) {
+      if (!section) return;
+      const overlay = document.querySelector("[data-detail-overlay]");
+      if (!overlay) return;
+      const title = overlay.querySelector("[data-detail-title]");
+      const meta = overlay.querySelector("[data-detail-meta]");
+      const payload = overlay.querySelector("[data-detail-payload]");
+      const decoded = overlay.querySelector("[data-detail-decoded]");
+      const closeBtn = overlay.querySelector("[data-detail-close]");
+
+      const close = () => {
+        overlay.hidden = true;
+      };
+      closeBtn?.addEventListener("click", close);
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+          close();
+        }
+      });
+
+      section.addEventListener("click", (event) => {
+        const btn = event.target.closest("[data-detail-trigger]");
+        if (!btn) return;
+        const row = btn.closest("tr");
+        if (!row) return;
+        title.textContent = `Packet #${row.dataset.index || "?"}`;
+        meta.innerHTML = `
+          <div><strong>Status:</strong> ${row.dataset.status || "-"}</div>
+          <div><strong>DevAddr:</strong> ${row.dataset.devaddr || "-"}</div>
+          <div><strong>FCnt:</strong> ${row.dataset.fcnt || "-"}</div>
+          <div><strong>FPort:</strong> ${row.dataset.fport || "-"}</div>
+          <div><strong>Time:</strong> ${row.dataset.time || "-"}</div>
+        `;
+        payload.textContent = row.dataset.payload || "";
+        const decodedRaw = row.dataset.decoded || "";
+        let formatted = decodedRaw;
+        try {
+          const parsed = JSON.parse(decodedRaw);
+          formatted = JSON.stringify(parsed, null, 2);
+        } catch (_) {
+          formatted = decodedRaw;
+        }
+        decoded.textContent = formatted || "";
+        overlay.hidden = false;
+      });
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
-      initLogTable();
+      initSortableTable(document.querySelector("[data-log-section]"));
+      initSortableTable(document.querySelector("[data-decode-section]"));
+      initTruncation(document.querySelector("[data-log-section]"));
+      initTruncation(document.querySelector("[data-decode-section]"));
+      initDetailOverlay(document.querySelector("[data-decode-section]"));
+      document.querySelectorAll("[data-toggle-visibility]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const targetId = button.dataset.toggleVisibility;
+          const input = document.getElementById(targetId);
+          if (!input) return;
+          const isHidden = input.type === "password";
+          input.type = isHidden ? "text" : "password";
+          button.setAttribute("aria-pressed", isHidden ? "true" : "false");
+          button.title = isHidden ? "Hide key" : "Show key";
+        });
+      });
       const drop = document.querySelector("[data-file-drop]");
       const form = drop?.closest("form");
       const overlay = document.querySelector("[data-loading-overlay]");
@@ -767,12 +1090,26 @@ SCRIPT_BLOCK = """
         updateLabel();
       }
 
-      if (form && overlay) {
-        form.addEventListener("submit", (event) => {
-          const submitter = event.submitter;
-          if (submitter && submitter.dataset.showLoader === "true") {
-            overlay.hidden = false;
-          }
+      if (overlay) {
+        document.querySelectorAll("form").forEach((formEl) => {
+          formEl.addEventListener("submit", (event) => {
+            const submitter = event.submitter;
+            if (submitter && submitter.dataset.showLoader === "true") {
+              overlay.hidden = false;
+            }
+          });
+        });
+      }
+
+      const decodeOverlay = document.querySelector("[data-decode-overlay]");
+      if (decodeOverlay) {
+        document.querySelectorAll("form").forEach((formEl) => {
+          formEl.addEventListener("submit", (event) => {
+            const submitter = event.submitter;
+            if (submitter && submitter.dataset.showDecodeLoader === "true") {
+              decodeOverlay.hidden = false;
+            }
+          });
         });
       }
     });
@@ -796,27 +1133,15 @@ HTML = """
 
     <div class="card">
       <h1>LoRaWAN Log Replay</h1>
-      <p class="subtitle">Replay recorded Semtech UDP uplinks towards your LoRaWAN server.</p>
+      <p class="subtitle">Upload a Semtech UDP JSONL logfile, then replay it or decrypt and decode the payloads.</p>
 
-      <form method="POST" action="{{ replay_url }}" enctype="multipart/form-data" data-scan-url="{{ scan_url }}">
-        <div>
-          <label for="host">LoRaWAN server host</label>
-          <input id="host" name="host" type="text" value="{{ form_values.host }}">
-          <div class="hint">Use <code>127.0.0.1</code> or <code>localhost</code> when this app runs on the same server as your LoRaWAN stack.</div>
-        </div>
-
-        <div>
-          <label for="port">UDP port</label>
-          <input id="port" name="port" type="number" value="{{ form_values.port }}">
-          <div class="hint">The default Semtech UDP port is 1700.</div>
-        </div>
-
+      <form method="POST" action="{{ scan_url }}" enctype="multipart/form-data" data-scan-url="{{ scan_url }}">
         <div>
           <label for="logfile">Logfile</label>
           <div class="logfile-options">
             <div class="logfile-option">
               <h3>Upload a logfile</h3>
-              <input id="logfile" type="file" name="logfile" {% if not scan_token %}required{% endif %} style="display: none;" aria-hidden="true">
+              <input id="logfile" type="file" name="logfile" style="display: none;" aria-hidden="true">
               <div class="file-drop" data-file-drop>
                 <div class="file-text">
                   <strong>Click to choose or drag & drop</strong>
@@ -824,6 +1149,16 @@ HTML = """
                   <div class="hint">Upload a JSON Lines file you captured earlier.</div>
                 </div>
               </div>
+            </div>
+            <div class="logfile-option">
+              <h3>Stored logfiles</h3>
+              <div class="hint">Pick a previously uploaded logfile.</div>
+              <select id="stored_log_id" name="stored_log_id">
+                <option value="">Select a stored logfile...</option>
+                {% for log in stored_logs %}
+                <option value="{{ log.id }}" {% if log.id == selected_stored_id %}selected{% endif %}>{{ log.filename }} ({{ log.uploaded_at }})</option>
+                {% endfor %}
+              </select>
             </div>
             <div class="logfile-option">
               <h3>Generate a sample logfile</h3>
@@ -835,11 +1170,9 @@ HTML = """
           </div>
         </div>
 
-        {% if scan_token %}
-        <input type="hidden" name="scan_token" value="{{ scan_token }}">
-        {% endif %}
-
-        <button type="submit" data-show-loader="true">Replay</button>
+        <div class="form-actions">
+          <button type="submit">Scan logfile</button>
+        </div>
 
         {% if result_lines %}
         <div class="result {{ result_class }}">
@@ -848,8 +1181,45 @@ HTML = """
           {% endfor %}
         </div>
         {% endif %}
-
       </form>
+
+      <div class="section-divider"></div>
+
+      <div class="logfile-options">
+        <div class="logfile-option">
+          <h3>Replay to UDP forwarder</h3>
+          <div class="hint">Use the Semtech UDP forwarder settings of your LoRaWAN server.</div>
+          <form method="POST" action="{{ replay_url }}">
+            <div>
+              <label for="host">LoRaWAN server host</label>
+              <input id="host" name="host" type="text" value="{{ form_values.host }}">
+            </div>
+            <div>
+              <label for="port">UDP port</label>
+              <input id="port" name="port" type="number" value="{{ form_values.port }}">
+              <div class="hint">The default Semtech UDP port is 1700.</div>
+            </div>
+            {% if scan_token %}
+            <input type="hidden" name="scan_token" value="{{ scan_token }}">
+            {% endif %}
+            <div class="form-actions">
+              <button type="submit" {% if not scan_token %}disabled{% endif %} data-show-loader="true">Replay</button>
+            </div>
+          </form>
+        </div>
+        <div class="logfile-option">
+          <h3>Decrypt &amp; decode in the app</h3>
+          <div class="hint">Provide NwkSKey and AppSKey per DevAddr, then decode with your payload decoder.</div>
+          <form method="POST" action="{{ decode_url }}">
+            {% if scan_token %}
+            <input type="hidden" name="scan_token" value="{{ scan_token }}">
+            {% endif %}
+            <div class="form-actions">
+              <button type="submit" {% if not scan_token %}disabled{% endif %}>Decrypt &amp; decode</button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
 
     <p class="brand-note">
@@ -864,7 +1234,7 @@ HTML = """
         <div class="log-controls">
           <label>
             Rows to display:
-            <select data-log-limit>
+            <select data-table-limit>
               <option value="20">20</option>
               <option value="50">50</option>
               <option value="100">100</option>
@@ -873,15 +1243,15 @@ HTML = """
           </label>
         </div>
         <div style="overflow-x: auto;">
-          <table class="log-table" data-log-table>
+          <table class="log-table" data-sortable-table data-numeric-keys="index,freq,size">
             <thead>
               <tr>
-                <th><button type="button" data-log-sort="index">#</button></th>
-                <th><button type="button" data-log-sort="status">Status</button></th>
-                <th><button type="button" data-log-sort="gateway">Gateway EUI</button></th>
-                <th><button type="button" data-log-sort="freq">Frequency</button></th>
-                <th><button type="button" data-log-sort="size">Size</button></th>
-                <th><button type="button" data-log-sort="message">Message</button></th>
+                <th><button type="button" data-sort-key="index">#</button></th>
+                <th><button type="button" data-sort-key="status">Status</button></th>
+                <th><button type="button" data-sort-key="gateway">Gateway EUI</button></th>
+                <th><button type="button" data-sort-key="freq">Frequency</button></th>
+                <th><button type="button" data-sort-key="size">Size</button></th>
+                <th><button type="button" data-sort-key="message">Message</button></th>
               </tr>
             </thead>
             <tbody>
@@ -913,6 +1283,337 @@ HTML = """
       <div class="spinner" aria-hidden="true"></div>
       <div>Replaying uplinks…</div>
     </div>
+  </div>
+  {{ script_block|safe }}
+</body>
+</html>
+"""
+
+DECODE_HTML = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Decrypt & Decode LoRaWAN Log</title>
+  <link rel="icon" type="image/x-icon" href="{{ favicon_url }}">
+  {{ style_block|safe }}
+</head>
+<body>
+  <div class="outer-column">
+    <div class="logo-card">
+      <img src="{{ logo_url }}" alt="Smart Parks logo">
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h1>Decrypt &amp; Decode</h1>
+          <p class="subtitle">Decrypt uplinks from <strong>{{ selected_filename }}</strong> and decode them with your payload decoder.</p>
+        </div>
+        <a class="secondary-button" href="{{ replay_url }}">Back to Replay</a>
+      </div>
+
+      {% if summary_lines %}
+      <div class="result {{ result_class }}">
+        {% for line in summary_lines %}
+        <div>{{ line }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="section-divider"></div>
+
+      <div class="field-group">
+        <div class="field-header">
+          <label>Device session keys</label>
+        </div>
+        <div class="hint">Review the devices discovered in this logfile and edit credentials on the Device session keys page.</div>
+        <div class="key-grid">
+          {% for devaddr in devaddrs %}
+          <div class="field-group">
+            <div class="field-header">
+              <label>{{ credentials.get(devaddr, {}).get('name', 'Device') }} — {{ devaddr }}
+                {% if devaddr in missing_keys %}
+                <span class="tag">Missing</span>
+                {% endif %}
+              </label>
+            </div>
+            <div class="hint">Session keys stored: {% if devaddr in missing_keys %}no{% else %}yes{% endif %}</div>
+            <a class="inline-action" href="{{ keys_url }}?scan_token={{ scan_token }}&devaddr={{ devaddr }}">
+              <span>Edit keys</span>
+            </a>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="form-actions">
+          <a class="secondary-button" href="{{ keys_url }}?scan_token={{ scan_token }}">Manage device session keys</a>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <form method="POST" action="{{ decode_url }}" enctype="multipart/form-data">
+        <input type="hidden" name="scan_token" value="{{ scan_token }}">
+        <input type="hidden" name="action" value="upload_decoder">
+        <div>
+          <label for="decoder_file">Upload a payload decoder (.js)</label>
+          <input id="decoder_file" name="decoder_file" type="file" accept=".js">
+          <div class="hint">JS decoders should define <code>Decoder(bytes, port)</code> or <code>decodeUplink({ bytes, fPort })</code> (TTN style).</div>
+        </div>
+        <div class="form-actions">
+          <button type="submit">Upload decoder</button>
+        </div>
+      </form>
+
+      <div class="section-divider"></div>
+
+      <form method="POST" action="{{ decode_url }}">
+        <input type="hidden" name="scan_token" value="{{ scan_token }}">
+        <input type="hidden" name="action" value="decode">
+        <div>
+          <label for="decoder_id">Payload decoder</label>
+          <select id="decoder_id" name="decoder_id" required>
+            {% for decoder in decoders %}
+            <option value="{{ decoder.id }}" {% if decoder.id == selected_decoder %}selected{% endif %}>{{ decoder.label }}</option>
+            {% endfor %}
+          </select>
+          <div class="hint">Select the decoder and press Decode to process all decrypted payloads.</div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" {% if missing_keys %}disabled{% endif %} data-show-decode-loader="true">Decode</button>
+        </div>
+        {% if missing_keys %}
+        <div class="result error">Missing keys for {{ missing_keys|length }} DevAddr(s). Save keys before decoding.</div>
+        {% endif %}
+      </form>
+
+      {% if decode_results %}
+      <div class="section-divider"></div>
+      <div class="log-wrapper" data-decode-section>
+        <details class="log-block" open>
+          <summary>Decoded payloads</summary>
+          <div class="log-controls">
+            <label>
+              Rows to display:
+              <select data-table-limit>
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="log-table" data-sortable-table data-numeric-keys="index,fcnt,fport">
+              <thead>
+                <tr>
+                  <th><button type="button" data-sort-key="index">#</button></th>
+                  <th><button type="button" data-sort-key="status">Status</button></th>
+                  <th><button type="button" data-sort-key="devaddr">DevAddr</button></th>
+                  <th><button type="button" data-sort-key="fcnt">FCnt</button></th>
+                  <th><button type="button" data-sort-key="fport">FPort</button></th>
+                  <th><button type="button" data-sort-key="time">Time</button></th>
+                  <th>Payload</th>
+                  <th>Decoded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in decode_results %}
+                <tr class="{{ row.css }}"
+                    data-index="{{ row.index }}"
+                    data-status="{{ row.status }}"
+                    data-devaddr="{{ row.devaddr }}"
+                    data-fcnt="{{ row.fcnt }}"
+                    data-fport="{{ row.fport }}"
+                    data-time="{{ row.time }}"
+                    data-payload="{{ row.payload_hex | e }}"
+                    data-decoded="{{ row.decoded_preview | e }}">
+                  <td>{{ row.index }}</td>
+                  <td>{{ row.status }}</td>
+                  <td>{{ row.devaddr }}</td>
+                  <td>{{ row.fcnt }}</td>
+                  <td>{{ row.fport }}</td>
+                  <td>{{ row.time }}</td>
+                  <td>
+                    <button type="button" class="cell-action" data-detail-trigger>
+                      Payload ({{ row.payload_hex|length }} bytes)
+                    </button>
+                  </td>
+                  <td>
+                    <button type="button" class="cell-action" data-detail-trigger>
+                      Decoded view
+                    </button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+      <div class="table-actions">
+        <a class="secondary-button" href="{{ export_csv_url }}">Export CSV</a>
+        <a class="secondary-button" href="{{ export_json_url }}">Export JSON</a>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="detail-overlay" data-detail-overlay hidden>
+      <div class="detail-card">
+        <h2 data-detail-title>Packet details</h2>
+        <div class="detail-grid" data-detail-meta></div>
+        <div class="detail-collapsible">
+          <details open>
+            <summary>Payload</summary>
+            <div class="detail-block"><pre data-detail-payload></pre></div>
+          </details>
+        </div>
+        <div class="detail-collapsible">
+          <details open>
+            <summary>Decoded (JSON)</summary>
+            <div class="detail-block"><pre data-detail-decoded></pre></div>
+          </details>
+        </div>
+        <div class="detail-actions">
+          <button type="button" data-detail-close>Close</button>
+        </div>
+      </div>
+    </div>
+    <div class="loading-overlay" data-decode-overlay hidden>
+      <div class="loading-card">
+        <div class="progress-bar" aria-hidden="true"></div>
+        <div>Decoding payloads…</div>
+      </div>
+    </div>
+
+    <p class="brand-note">
+      A Smart Parks tool to Protect Wildlife with Passion and Technology.
+      <a href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
+    </p>
+  </div>
+  {{ script_block|safe }}
+</body>
+</html>
+"""
+
+DEVICE_KEYS_HTML = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Device Session Keys</title>
+  <link rel="icon" type="image/x-icon" href="{{ favicon_url }}">
+  {{ style_block|safe }}
+</head>
+<body>
+  <div class="outer-column">
+    <div class="logo-card">
+      <img src="{{ logo_url }}" alt="Smart Parks logo">
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h1>Device Session Keys</h1>
+          <p class="subtitle">Store DevAddr, optional names, and ABP session keys for decoding.</p>
+        </div>
+        <a class="secondary-button" href="{{ decode_url }}">Back to Decode</a>
+      </div>
+
+      {% if summary_lines %}
+      <div class="result {{ result_class }}">
+        {% for line in summary_lines %}
+        <div>{{ line }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <form method="POST" action="{{ keys_url }}">
+        {% if scan_token %}
+        <input type="hidden" name="scan_token" value="{{ scan_token }}">
+        {% endif %}
+        <input type="hidden" name="action" value="save_keys">
+        <div class="field-group">
+          <div class="field-header">
+            <label>Known devices</label>
+          </div>
+          <div class="hint">Update keys or friendly names for devices already stored.</div>
+          <div class="device-rows">
+            {% for devaddr in known_devaddrs %}
+            <div class="device-row">
+              <div class="field-header">
+                <label>DevAddr {{ devaddr }}</label>
+              </div>
+              <div class="key-grid">
+                <div>
+                  <label for="name_{{ devaddr }}">Device name</label>
+                  <input id="name_{{ devaddr }}" name="name_{{ devaddr }}" type="text" value="{{ credentials.get(devaddr, {}).get('name', '') }}">
+                </div>
+                <div>
+                  <label for="nwk_{{ devaddr }}">NwkSKey</label>
+                  <div class="field-controls">
+                    <input class="input-with-actions" id="nwk_{{ devaddr }}" name="nwk_{{ devaddr }}" type="password" value="{{ credentials.get(devaddr, {}).get('nwk_skey', '') }}">
+                    <button type="button" class="toggle-visibility" data-toggle-visibility="nwk_{{ devaddr }}" aria-pressed="false" title="Show key">👁</button>
+                  </div>
+                </div>
+                <div>
+                  <label for="app_{{ devaddr }}">AppSKey</label>
+                  <div class="field-controls">
+                    <input class="input-with-actions" id="app_{{ devaddr }}" name="app_{{ devaddr }}" type="password" value="{{ credentials.get(devaddr, {}).get('app_skey', '') }}">
+                    <button type="button" class="toggle-visibility" data-toggle-visibility="app_{{ devaddr }}" aria-pressed="false" title="Show key">👁</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit">Save updates</button>
+        </div>
+      </form>
+
+      <div class="section-divider"></div>
+
+      <form method="POST" action="{{ keys_url }}">
+        {% if scan_token %}
+        <input type="hidden" name="scan_token" value="{{ scan_token }}">
+        {% endif %}
+        <input type="hidden" name="action" value="add_device">
+        <div class="field-group">
+          <div class="field-header">
+            <label>Add a new device</label>
+          </div>
+          <div class="hint">Add a DevAddr upfront so it is ready for future logfiles.</div>
+          <div class="key-grid">
+            <div>
+              <label for="new_devaddr">DevAddr (hex)</label>
+              <input id="new_devaddr" name="new_devaddr" type="text" placeholder="26011BDA">
+            </div>
+            <div>
+              <label for="new_name">Device name (optional)</label>
+              <input id="new_name" name="new_name" type="text" placeholder="Wildlife collar 17">
+            </div>
+            <div>
+              <label for="new_nwk">NwkSKey (hex)</label>
+              <input id="new_nwk" name="new_nwk" type="password" placeholder="000102030405060708090A0B0C0D0E0F">
+            </div>
+            <div>
+              <label for="new_app">AppSKey (hex)</label>
+              <input id="new_app" name="new_app" type="password" placeholder="F0E0D0C0B0A090807060504030201000">
+            </div>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit">Add device</button>
+        </div>
+      </form>
+    </div>
+
+    <p class="brand-note">
+      A Smart Parks tool to Protect Wildlife with Passion and Technology.
+      <a href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
+    </p>
   </div>
   {{ script_block|safe }}
 </body>
@@ -1163,6 +1864,87 @@ def clean_hex(value: str) -> str:
     return value.replace(" ", "").replace(":", "").replace("-", "").strip()
 
 
+def ensure_data_dirs():
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(DECODER_DIR, exist_ok=True)
+    os.makedirs(BUILTIN_DECODER_DIR, exist_ok=True)
+
+
+def load_json_file(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return default
+    except json.JSONDecodeError:
+        return default
+
+
+def save_json_file(path, data):
+    ensure_data_dirs()
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2)
+    os.replace(tmp_path, path)
+
+
+def list_stored_logs():
+    entries = load_json_file(UPLOAD_INDEX_PATH, [])
+    available = []
+    for entry in entries:
+        if os.path.exists(entry.get("path", "")):
+            available.append(entry)
+    return available
+
+
+def get_stored_log_entry(log_id):
+    for entry in list_stored_logs():
+        if entry.get("id") == log_id:
+            return entry
+    return None
+
+
+def store_uploaded_log(logfile):
+    ensure_data_dirs()
+    token = secrets.token_urlsafe(8)
+    filename = secure_filename(logfile.filename or "log.jsonl") or "log.jsonl"
+    stored_name = f"{token}_{filename}"
+    path = os.path.join(UPLOAD_DIR, stored_name)
+    logfile.save(path)
+    entry = {
+        "id": token,
+        "filename": filename,
+        "path": path,
+        "uploaded_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+    }
+    entries = load_json_file(UPLOAD_INDEX_PATH, [])
+    entries.insert(0, entry)
+    save_json_file(UPLOAD_INDEX_PATH, entries[:200])
+    return entry
+
+
+def load_credentials():
+    return load_json_file(CREDENTIALS_PATH, {})
+
+
+def save_credentials(credentials):
+    save_json_file(CREDENTIALS_PATH, credentials)
+
+
+def normalize_skey(value, label):
+    cleaned = clean_hex(value).upper()
+    if len(cleaned) != 32:
+        raise ValueError(f"{label} must be 16 bytes (32 hex chars).")
+    return cleaned
+
+
+def normalize_devaddr(value):
+    cleaned = clean_hex(value).upper()
+    if len(cleaned) != 8:
+        raise ValueError("DevAddr must be 4 bytes (8 hex chars).")
+    return cleaned
+
+
 def generate_logfile_bytes(form_values):
     gateway_eui = form_values["gateway_eui"].strip()
     if not gateway_eui:
@@ -1261,6 +2043,98 @@ def parse_int(value, field, minimum=None, maximum=None):
     return num
 
 
+def hex_to_bytes(value, label):
+    cleaned = clean_hex(value)
+    try:
+        raw = bytes.fromhex(cleaned)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be valid hex.") from exc
+    if len(raw) != 16:
+        raise ValueError(f"{label} must be 16 bytes (32 hex chars).")
+    return raw
+
+
+def parse_uplink(rxpk):
+    data = rxpk.get("data")
+    if not data:
+        raise ValueError("Missing rxpk.data payload.")
+    try:
+        phy = base64.b64decode(data, validate=True)
+    except binascii.Error as exc:
+        raise ValueError("rxpk.data is not valid base64.") from exc
+    if len(phy) < 12:
+        raise ValueError("PHYPayload too short.")
+
+    mhdr = phy[0]
+    mtype = (mhdr >> 5) & 0x07
+    if mtype not in (2, 4):
+        raise ValueError("PHYPayload is not an uplink data frame.")
+
+    mac_payload = phy[1:-4]
+    if len(mac_payload) < 7:
+        raise ValueError("MACPayload too short.")
+
+    devaddr_le = mac_payload[0:4]
+    devaddr = devaddr_le[::-1].hex().upper()
+    fctrl = mac_payload[4]
+    fcnt = int.from_bytes(mac_payload[5:7], "little")
+    fopts_len = fctrl & 0x0F
+
+    fhdr_len = 7 + fopts_len
+    if len(mac_payload) < fhdr_len:
+        raise ValueError("FHDR length mismatch.")
+
+    fopts = mac_payload[7:7 + fopts_len]
+    remaining = mac_payload[fhdr_len:]
+    fport = None
+    frm_payload = b""
+    if remaining:
+        fport = remaining[0]
+        frm_payload = remaining[1:]
+
+    return {
+        "mhdr": mhdr,
+        "mtype": mtype,
+        "devaddr": devaddr,
+        "devaddr_le": devaddr_le,
+        "fctrl": fctrl,
+        "fcnt": fcnt,
+        "fopts": fopts,
+        "fport": fport,
+        "frm_payload": frm_payload,
+    }
+
+
+def lorawan_decrypt_payload(key, devaddr_le, fcnt, payload, direction=0):
+    if not payload:
+        return b""
+    cipher = make_aes_cipher(key)
+    out = bytearray()
+    block_count = (len(payload) + 15) // 16
+    for i in range(block_count):
+        a_block = bytearray(16)
+        a_block[0] = 0x01
+        a_block[5] = direction & 0x01
+        a_block[6:10] = devaddr_le
+        a_block[10:14] = fcnt.to_bytes(4, "little")
+        a_block[15] = i + 1
+        s_block = cipher.encrypt(bytes(a_block))
+        start = i * 16
+        end = start + 16
+        block = payload[start:end]
+        for j, b in enumerate(block):
+            out.append(b ^ s_block[j])
+    return bytes(out)
+
+
+def make_aes_cipher(key):
+    try:
+        from Crypto.Cipher import AES
+    except ImportError as exc:
+        raise RuntimeError("PyCryptodome is required for LoRaWAN decryption.") from exc
+    return AES.new(key, AES.MODE_ECB)
+
+
 def extract_devaddr(rxpk):
     data = rxpk.get("data")
     if not data:
@@ -1275,13 +2149,15 @@ def extract_devaddr(rxpk):
     return devaddr_le[::-1].hex().upper()
 
 
-def scan_logfile(logfile):
+def scan_logfile(stream):
     parsed = []
     gateways = set()
     devaddrs = set()
     errors = []
 
-    for line_no, raw_line in enumerate(logfile.stream, start=1):
+    for line_no, raw_line in enumerate(stream, start=1):
+        if isinstance(raw_line, str):
+            raw_line = raw_line.encode("utf-8")
         try:
             line = raw_line.decode("utf-8").strip()
         except UnicodeDecodeError:
@@ -1335,7 +2211,16 @@ def prune_scan_cache(now=None):
         del SCAN_CACHE[token]
 
 
-def store_scan_result(parsed, gateways, devaddrs, filename):
+def prune_decode_cache(now=None):
+    if not DECODE_CACHE:
+        return
+    now = time.time() if now is None else now
+    expired = [token for token, entry in DECODE_CACHE.items() if now - entry["ts"] > DECODE_CACHE_TTL]
+    for token in expired:
+        del DECODE_CACHE[token]
+
+
+def store_scan_result(parsed, gateways, devaddrs, filename, stored_log_id=""):
     prune_scan_cache()
     token = secrets.token_urlsafe(16)
     SCAN_CACHE[token] = {
@@ -1343,6 +2228,7 @@ def store_scan_result(parsed, gateways, devaddrs, filename):
         "gateways": gateways,
         "devaddrs": devaddrs,
         "filename": filename,
+        "stored_log_id": stored_log_id,
         "ts": time.time(),
     }
     return token
@@ -1353,7 +2239,22 @@ def get_scan_result(token):
     entry = SCAN_CACHE.get(token)
     if not entry:
         return None
-    return entry["parsed"], entry["gateways"], entry["devaddrs"], entry["filename"]
+    return entry["parsed"], entry["gateways"], entry["devaddrs"], entry["filename"], entry.get("stored_log_id", "")
+
+
+def store_decode_result(rows):
+    prune_decode_cache()
+    token = secrets.token_urlsafe(16)
+    DECODE_CACHE[token] = {"rows": rows, "ts": time.time()}
+    return token
+
+
+def get_decode_result(token):
+    prune_decode_cache()
+    entry = DECODE_CACHE.get(token)
+    if not entry:
+        return None
+    return entry["rows"]
 
 
 def format_list(label, items, limit=10):
@@ -1366,6 +2267,105 @@ def format_list(label, items, limit=10):
     return f"{label}: {preview} (+{remaining} more)"
 
 
+JS_DECODER_RUNNER = r"""
+const fs = require("fs");
+const vm = require("vm");
+
+const path = process.argv[1];
+const fport = parseInt(process.argv[2], 10) || 0;
+const b64 = process.argv[3] || "";
+const buf = Buffer.from(b64, "base64");
+const bytes = Array.from(buf.values());
+
+const code = fs.readFileSync(path, "utf8");
+const sandbox = { console: console };
+vm.createContext(sandbox);
+vm.runInContext(code, sandbox);
+
+let result;
+if (typeof sandbox.Decoder === "function") {
+  result = { data: sandbox.Decoder(bytes, fport) };
+} else if (typeof sandbox.decodeUplink === "function") {
+  result = sandbox.decodeUplink({ bytes: bytes, fPort: fport });
+} else if (typeof sandbox.decode === "function") {
+  result = sandbox.decode(bytes, fport);
+} else {
+  throw new Error("Decoder file must export decodeUplink(), Decoder(), or decode().");
+}
+
+process.stdout.write(JSON.stringify(result === undefined ? null : result));
+"""
+
+
+def list_decoders():
+    ensure_data_dirs()
+    decoders = [{"id": "raw", "label": "Raw payload (hex)", "source": "builtin"}]
+    for filename in sorted(os.listdir(BUILTIN_DECODER_DIR)):
+        if filename.lower().endswith(".js"):
+            decoder_id = f"builtin:{filename}"
+            label = filename[:-3].replace("_", " ").replace("-", " ").title()
+            decoders.append({"id": decoder_id, "label": label, "source": filename})
+    for filename in sorted(os.listdir(DECODER_DIR)):
+        if filename.lower().endswith(".js"):
+            decoder_id = f"file:{filename}"
+            label = filename[:-3].replace("_", " ").replace("-", " ").title()
+            decoders.append({"id": decoder_id, "label": label, "source": filename})
+    return decoders
+
+
+def load_decoder(decoder_id):
+    if decoder_id == "raw":
+        def decode(payload, fport, devaddr, rxpk):
+            return {"payload_hex": payload.hex().upper(), "fport": fport}
+
+        return decode
+
+    def load_js_decoder(path):
+        if not os.path.exists(path):
+            raise ValueError("Decoder file not found.")
+
+        def decode(payload, fport, devaddr, rxpk):
+            if fport is None:
+                fport_value = 0
+            else:
+                fport_value = int(fport)
+            b64_payload = base64.b64encode(payload).decode("ascii")
+            try:
+                result = subprocess.run(
+                    ["node", "-e", JS_DECODER_RUNNER, path, str(fport_value), b64_payload],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+            except FileNotFoundError as exc:
+                raise ValueError("Node.js is required to run JS decoders.") from exc
+            except subprocess.CalledProcessError as exc:
+                err = exc.stderr.strip() or "Unknown decoder error."
+                raise ValueError(err) from exc
+            output = result.stdout.strip()
+            if not output:
+                return None
+            return json.loads(output)
+
+        return decode
+
+    if decoder_id.startswith("builtin:"):
+        filename = decoder_id.split("builtin:", 1)[1]
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise ValueError("Invalid decoder selection.")
+        path = os.path.join(BUILTIN_DECODER_DIR, filename)
+        return load_js_decoder(path)
+
+    if decoder_id.startswith("file:"):
+        filename = decoder_id.split("file:", 1)[1]
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise ValueError("Invalid decoder selection.")
+        path = os.path.join(DECODER_DIR, filename)
+        return load_js_decoder(path)
+
+    raise ValueError("Unknown decoder selection.")
+
+
 def render_main_page(
     result_lines=None,
     result_class="",
@@ -1373,6 +2373,8 @@ def render_main_page(
     form_values=None,
     scan_token="",
     selected_filename="",
+    stored_logs=None,
+    selected_stored_id="",
 ):
     values = {
         "host": "127.0.0.1",
@@ -1389,6 +2391,7 @@ def render_main_page(
         favicon_url=url_for("static", filename="favicon.ico"),
         replay_url=url_for("replay"),
         scan_url=url_for("scan"),
+        decode_url=url_for("decode"),
         generator_url=url_for("generate_log_page"),
         form_values=values,
         result_lines=result_lines or [],
@@ -1396,6 +2399,8 @@ def render_main_page(
         log_lines=log_lines or [],
         scan_token=scan_token,
         selected_filename=selected_filename,
+        stored_logs=stored_logs or [],
+        selected_stored_id=selected_stored_id,
     )
 
 
@@ -1418,19 +2423,109 @@ def render_generator_page(form_values=None, error_message=""):
     )
 
 
+def render_decode_page(
+    scan_token,
+    devaddrs,
+    credentials,
+    summary_lines=None,
+    result_class="success",
+    missing_keys=None,
+    decoders=None,
+    selected_decoder="raw",
+    decode_results=None,
+    selected_filename="",
+    export_token="",
+):
+    export_csv_url = url_for("export_results", fmt="csv", token=export_token) if export_token else ""
+    export_json_url = url_for("export_results", fmt="json", token=export_token) if export_token else ""
+    return render_template_string(
+        DECODE_HTML,
+        style_block=STYLE_BLOCK,
+        script_block=SCRIPT_BLOCK,
+        logo_url=url_for("static", filename="company_logo.png"),
+        favicon_url=url_for("static", filename="favicon.ico"),
+        replay_url=url_for("index"),
+        decode_url=url_for("decode"),
+        keys_url=url_for("device_keys"),
+        scan_token=scan_token,
+        summary_lines=summary_lines or [],
+        result_class=result_class,
+        devaddrs=devaddrs,
+        credentials=credentials,
+        missing_keys=missing_keys or [],
+        decoders=decoders or [],
+        selected_decoder=selected_decoder,
+        decode_results=decode_results,
+        selected_filename=selected_filename,
+        export_csv_url=export_csv_url,
+        export_json_url=export_json_url,
+    )
+
+
+def render_device_keys_page(
+    credentials,
+    summary_lines=None,
+    result_class="success",
+    scan_token="",
+):
+    known_devaddrs = sorted(credentials.keys())
+    decode_url = url_for("decode")
+    if scan_token:
+        decode_url = f"{decode_url}?scan_token={scan_token}"
+    return render_template_string(
+        DEVICE_KEYS_HTML,
+        style_block=STYLE_BLOCK,
+        script_block=SCRIPT_BLOCK,
+        logo_url=url_for("static", filename="company_logo.png"),
+        favicon_url=url_for("static", filename="favicon.ico"),
+        decode_url=decode_url,
+        keys_url=url_for("device_keys"),
+        summary_lines=summary_lines or [],
+        result_class=result_class,
+        credentials=credentials,
+        known_devaddrs=known_devaddrs,
+        scan_token=scan_token,
+    )
+
+
 @app.route("/", methods=["GET"])
 def index():
-    return render_main_page()
+    stored_logs = list_stored_logs()
+    return render_main_page(stored_logs=stored_logs)
 
 
 @app.route("/scan", methods=["POST"])
 def scan():
     logfile = request.files.get("logfile")
-    if not logfile:
-        return render_main_page(["Please upload a logfile."], "error", form_values=request.form)
-    selected_filename = logfile.filename or ""
+    stored_log_id = request.form.get("stored_log_id", "").strip()
+    stored_logs = list_stored_logs()
+    selected_filename = ""
+    selected_stored_id = stored_log_id
 
-    parsed, gateways, devaddrs, scan_errors = scan_logfile(logfile)
+    stream = None
+    if logfile and logfile.filename:
+        entry = store_uploaded_log(logfile)
+        selected_filename = entry["filename"]
+        selected_stored_id = entry["id"]
+        stored_logs = list_stored_logs()
+        stream = open(entry["path"], "rb")
+    elif stored_log_id:
+        entry = get_stored_log_entry(stored_log_id)
+        if entry:
+            selected_filename = entry["filename"]
+            stream = open(entry["path"], "rb")
+
+    if stream is None:
+        return render_main_page(
+            ["Please upload a logfile or select a stored logfile."],
+            "error",
+            form_values=request.form,
+            stored_logs=stored_logs,
+            selected_stored_id=selected_stored_id,
+        )
+
+    with stream:
+        parsed, gateways, devaddrs, scan_errors = scan_logfile(stream)
     summary_lines = [
         "Logfile scan summary:",
         f"Uplinks (valid)={len(parsed)}",
@@ -1451,6 +2546,8 @@ def scan():
             "error",
             form_values=request.form,
             selected_filename=selected_filename,
+            stored_logs=stored_logs,
+            selected_stored_id=selected_stored_id,
         )
 
     if not parsed:
@@ -1459,15 +2556,19 @@ def scan():
             "error",
             form_values=request.form,
             selected_filename=selected_filename,
+            stored_logs=stored_logs,
+            selected_stored_id=selected_stored_id,
         )
 
-    scan_token = store_scan_result(parsed, gateways, devaddrs, selected_filename)
+    scan_token = store_scan_result(parsed, gateways, devaddrs, selected_filename, selected_stored_id)
     return render_main_page(
-        summary_lines + ["Scan complete. Ready to replay."],
+        summary_lines + ["Scan complete. Ready to replay or decrypt."],
         "success",
         form_values=request.form,
         scan_token=scan_token,
         selected_filename=selected_filename,
+        stored_logs=stored_logs,
+        selected_stored_id=selected_stored_id,
     )
 
 
@@ -1477,10 +2578,19 @@ def replay():
     port_raw = request.form.get("port", "1700").strip()
     scan_token = request.form.get("scan_token", "").strip()
     logfile = request.files.get("logfile")
+    stored_log_id = request.form.get("stored_log_id", "").strip()
+    stored_logs = list_stored_logs()
+    selected_stored_id = stored_log_id
     log_lines = []
 
     if not scan_token and not logfile:
-        return render_main_page(["Please upload a logfile."], "error", form_values=request.form)
+        return render_main_page(
+            ["Please upload a logfile or scan a stored logfile."],
+            "error",
+            form_values=request.form,
+            stored_logs=stored_logs,
+            selected_stored_id=selected_stored_id,
+        )
 
     try:
         port = int(port_raw)
@@ -1495,12 +2605,36 @@ def replay():
                 ["Scan expired or not found. Please upload the logfile again."],
                 "error",
                 form_values=request.form,
+                stored_logs=stored_logs,
+                selected_stored_id=selected_stored_id,
             )
-        parsed, gateways, devaddrs, selected_filename = cached
+        parsed, gateways, devaddrs, selected_filename, selected_stored_id = cached
         scan_errors = []
     else:
-        parsed, gateways, devaddrs, scan_errors = scan_logfile(logfile)
-        selected_filename = logfile.filename if logfile else ""
+        stream = None
+        if logfile and logfile.filename:
+            entry = store_uploaded_log(logfile)
+            selected_filename = entry["filename"]
+            selected_stored_id = entry["id"]
+            stored_logs = list_stored_logs()
+            stream = open(entry["path"], "rb")
+        elif stored_log_id:
+            entry = get_stored_log_entry(stored_log_id)
+            if entry:
+                selected_filename = entry["filename"]
+                stream = open(entry["path"], "rb")
+
+        if stream is None:
+            return render_main_page(
+                ["Please upload a logfile or select a stored logfile."],
+                "error",
+                form_values=request.form,
+                stored_logs=stored_logs,
+                selected_stored_id=selected_stored_id,
+            )
+
+        with stream:
+            parsed, gateways, devaddrs, scan_errors = scan_logfile(stream)
     summary_lines = [
         "Logfile scan summary:",
         f"Uplinks (valid)={len(parsed)}",
@@ -1521,6 +2655,8 @@ def replay():
             "error",
             form_values=request.form,
             selected_filename=selected_filename,
+            stored_logs=stored_logs,
+            selected_stored_id=selected_stored_id,
         )
 
     if not parsed:
@@ -1529,6 +2665,8 @@ def replay():
             "error",
             form_values=request.form,
             selected_filename=selected_filename,
+            stored_logs=stored_logs,
+            selected_stored_id=selected_stored_id,
         )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1619,7 +2757,299 @@ def replay():
         form_values=request.form,
         scan_token=scan_token,
         selected_filename=selected_filename,
+        stored_logs=stored_logs,
+        selected_stored_id=selected_stored_id,
     )
+
+
+def get_missing_keys(devaddrs, credentials):
+    missing = []
+    for devaddr in devaddrs:
+        entry = credentials.get(devaddr, {})
+        nwk = entry.get("nwk_skey", "")
+        app = entry.get("app_skey", "")
+        if not nwk or not app or len(nwk) != 32 or len(app) != 32:
+            missing.append(devaddr)
+    return missing
+
+
+@app.route("/decode", methods=["GET", "POST"])
+def decode():
+    scan_token = request.form.get("scan_token") or request.args.get("scan_token", "")
+    scan_token = scan_token.strip()
+    if not scan_token:
+        return render_main_page(["Scan a logfile first."], "error", stored_logs=list_stored_logs())
+
+    cached = get_scan_result(scan_token)
+    if not cached:
+        return render_main_page(
+            ["Scan expired or not found. Please upload the logfile again."],
+            "error",
+            stored_logs=list_stored_logs(),
+        )
+
+    parsed, gateways, devaddrs, selected_filename, stored_log_id = cached
+    credentials = load_credentials()
+    missing_keys = get_missing_keys(devaddrs, credentials)
+    summary_lines = [
+        "Logfile scan summary:",
+        f"Uplinks (valid)={len(parsed)}",
+        format_list("Gateway EUI", gateways),
+        format_list("DevAddr (hex)", devaddrs),
+    ]
+    decoders = list_decoders()
+    selected_decoder = request.form.get("decoder_id", "raw")
+    decode_results = None
+    export_token = ""
+    result_class = "success"
+
+    action = request.form.get("action", "").strip()
+    if action == "upload_decoder":
+        decoder_file = request.files.get("decoder_file")
+        if not decoder_file or not decoder_file.filename:
+            summary_lines = ["Please choose a decoder file to upload."]
+            result_class = "error"
+        else:
+            filename = secure_filename(decoder_file.filename)
+            if not filename.lower().endswith(".js"):
+                summary_lines = ["Decoder file must be a .js file."]
+                result_class = "error"
+            else:
+                ensure_data_dirs()
+                path = os.path.join(DECODER_DIR, filename)
+                decoder_file.save(path)
+                summary_lines = [f"Decoder uploaded: {filename}"]
+                result_class = "success"
+                decoders = list_decoders()
+
+    if action == "decode":
+        if missing_keys:
+            summary_lines = ["Missing keys. Save keys before decoding."]
+            result_class = "error"
+        else:
+            try:
+                decoder_func = load_decoder(selected_decoder)
+            except Exception as exc:
+                summary_lines = [f"Decoder error: {exc}"]
+                result_class = "error"
+            else:
+                rows = []
+                ok = 0
+                errors = 0
+                for idx, rec in enumerate(parsed, start=1):
+                    rxpk = rec["rxpk"]
+                    gateway_eui = rec["gateway_eui"]
+                    time_str = rxpk.get("time", "")
+                    freq = rxpk.get("freq", "")
+                    status = "Decoded"
+                    css = "ok"
+                    payload_hex = ""
+                    decoded_preview = ""
+                    decoded_data = None
+                    decoded_raw = None
+                    devaddr = ""
+                    fcnt = ""
+                    fport = ""
+                    error_msg = ""
+
+                    try:
+                        uplink = parse_uplink(rxpk)
+                        devaddr = uplink["devaddr"]
+                        fcnt = uplink["fcnt"]
+                        fport = uplink["fport"] if uplink["fport"] is not None else ""
+                        keys = credentials.get(devaddr, {})
+                        nwk_skey = hex_to_bytes(keys["nwk_skey"], "NwkSKey")
+                        app_skey = hex_to_bytes(keys["app_skey"], "AppSKey")
+                        key = app_skey if uplink["fport"] not in (0, None) else nwk_skey
+                        decrypted = lorawan_decrypt_payload(
+                            key, uplink["devaddr_le"], uplink["fcnt"], uplink["frm_payload"], direction=0
+                        )
+                        payload_hex = decrypted.hex().upper()
+                        decoded_raw = decoder_func(decrypted, uplink["fport"], devaddr, rxpk)
+                        if isinstance(decoded_raw, dict) and "data" in decoded_raw and len(decoded_raw) <= 3:
+                            decoded_data = decoded_raw.get("data")
+                        else:
+                            decoded_data = decoded_raw
+                        decoded_preview = json.dumps(decoded_data, ensure_ascii=True)
+                        ok += 1
+                    except Exception as exc:
+                        status = "Error"
+                        css = "err"
+                        error_msg = str(exc)
+                        decoded_preview = error_msg
+                        errors += 1
+
+                    rows.append(
+                        {
+                            "index": idx,
+                            "status": status,
+                            "devaddr": devaddr,
+                            "fcnt": fcnt,
+                            "fport": fport,
+                            "time": time_str,
+                            "gateway_eui": gateway_eui,
+                            "freq": freq,
+                            "payload_hex": payload_hex,
+                            "decoded": decoded_data,
+                            "decoded_raw": decoded_raw,
+                            "error": error_msg,
+                            "decoded_preview": decoded_preview,
+                            "css": css,
+                        }
+                    )
+
+                decode_results = rows
+                export_token = store_decode_result(rows)
+                summary_lines = [
+                    "Decode complete.",
+                    f"Decoded={ok}, errors={errors}",
+                ]
+                result_class = "success" if errors == 0 else "error"
+
+    return render_decode_page(
+        scan_token=scan_token,
+        devaddrs=devaddrs,
+        credentials=credentials,
+        summary_lines=summary_lines,
+        result_class=result_class,
+        missing_keys=missing_keys,
+        decoders=decoders,
+        selected_decoder=selected_decoder,
+        decode_results=decode_results,
+        selected_filename=selected_filename,
+        export_token=export_token,
+    )
+
+
+@app.route("/keys", methods=["GET", "POST"])
+def device_keys():
+    scan_token = request.form.get("scan_token") or request.args.get("scan_token", "")
+    scan_token = scan_token.strip()
+    credentials = load_credentials()
+    summary_lines = []
+    result_class = "success"
+
+    action = request.form.get("action", "").strip()
+    if action == "save_keys":
+        updated = 0
+        errors = []
+        for devaddr in list(credentials.keys()):
+            name_val = request.form.get(f"name_{devaddr}", "").strip()
+            nwk_val = request.form.get(f"nwk_{devaddr}", "").strip()
+            app_val = request.form.get(f"app_{devaddr}", "").strip()
+            entry = credentials.get(devaddr, {})
+            if name_val:
+                entry["name"] = name_val
+            if nwk_val or app_val:
+                if not nwk_val or not app_val:
+                    errors.append(f"Both keys required for {devaddr}.")
+                else:
+                    try:
+                        entry["nwk_skey"] = normalize_skey(nwk_val, f"NwkSKey for {devaddr}")
+                        entry["app_skey"] = normalize_skey(app_val, f"AppSKey for {devaddr}")
+                    except ValueError as exc:
+                        errors.append(str(exc))
+            entry["updated_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            credentials[devaddr] = entry
+            updated += 1
+        if errors:
+            summary_lines = ["Key update errors:"] + errors
+            result_class = "error"
+        else:
+            summary_lines = [f"Updated {updated} device(s)."]
+        save_credentials(credentials)
+
+    if action == "add_device":
+        devaddr_raw = request.form.get("new_devaddr", "").strip()
+        name_val = request.form.get("new_name", "").strip()
+        nwk_val = request.form.get("new_nwk", "").strip()
+        app_val = request.form.get("new_app", "").strip()
+        if not devaddr_raw:
+            summary_lines = ["DevAddr is required to add a device."]
+            result_class = "error"
+        else:
+            try:
+                devaddr = normalize_devaddr(devaddr_raw)
+            except ValueError as exc:
+                summary_lines = [str(exc)]
+                result_class = "error"
+            else:
+                if (nwk_val or app_val) and not (nwk_val and app_val):
+                    summary_lines = ["Provide both NwkSKey and AppSKey, or leave both empty."]
+                    result_class = "error"
+                else:
+                    entry = credentials.get(devaddr, {})
+                    if name_val:
+                        entry["name"] = name_val
+                    if nwk_val and app_val:
+                        try:
+                            entry["nwk_skey"] = normalize_skey(nwk_val, f"NwkSKey for {devaddr}")
+                            entry["app_skey"] = normalize_skey(app_val, f"AppSKey for {devaddr}")
+                        except ValueError as exc:
+                            summary_lines = [str(exc)]
+                            result_class = "error"
+                            return render_device_keys_page(
+                                credentials,
+                                summary_lines=summary_lines,
+                                result_class=result_class,
+                                scan_token=scan_token,
+                            )
+                    entry["updated_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                    credentials[devaddr] = entry
+                    save_credentials(credentials)
+                    summary_lines = [f"Device {devaddr} saved."]
+                    result_class = "success"
+
+    return render_device_keys_page(
+        credentials,
+        summary_lines=summary_lines,
+        result_class=result_class,
+        scan_token=scan_token,
+    )
+
+
+@app.route("/export/<fmt>", methods=["GET"])
+def export_results(fmt):
+    token = request.args.get("token", "").strip()
+    rows = get_decode_result(token)
+    if not rows:
+        return "No export data available.", 404
+
+    export_rows = []
+    for row in rows:
+        export_rows.append(
+            {
+                "index": row.get("index"),
+                "status": row.get("status"),
+                "devaddr": row.get("devaddr"),
+                "fcnt": row.get("fcnt"),
+                "fport": row.get("fport"),
+                "time": row.get("time"),
+                "gateway_eui": row.get("gateway_eui"),
+                "freq": row.get("freq"),
+                "payload_hex": row.get("payload_hex"),
+                "decoded": json.dumps(row.get("decoded"), ensure_ascii=True) if row.get("decoded") is not None else "",
+                "decoded_raw": json.dumps(row.get("decoded_raw"), ensure_ascii=True) if row.get("decoded_raw") is not None else "",
+                "error": row.get("error"),
+            }
+        )
+
+    if fmt == "json":
+        buffer = io.BytesIO(json.dumps(export_rows, indent=2).encode("utf-8"))
+        buffer.seek(0)
+        return send_file(buffer, mimetype="application/json", as_attachment=True, download_name="decoded_payloads.json")
+
+    if fmt == "csv":
+        buffer = io.StringIO()
+        fieldnames = list(export_rows[0].keys())
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(export_rows)
+        csv_bytes = io.BytesIO(buffer.getvalue().encode("utf-8"))
+        csv_bytes.seek(0)
+        return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name="decoded_payloads.csv")
+
+    return "Unsupported export format.", 400
 
 
 @app.route("/generate-log", methods=["GET", "POST"])

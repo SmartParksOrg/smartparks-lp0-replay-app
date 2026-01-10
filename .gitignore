@@ -18,6 +18,7 @@ dist/
 *.log
 *.jsonl
 .env
+data/
 
 .DS_Store
 *:Zone.Identifier
