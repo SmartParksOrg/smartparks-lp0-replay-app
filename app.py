@@ -10,7 +10,8 @@ import datetime
 import io
 import csv
 import subprocess
-from flask import Flask, request, render_template_string, url_for, send_file
+import html
+from flask import Flask, request, render_template_string, url_for, send_file, redirect
 from werkzeug.utils import secure_filename
 import make_test_log
 
@@ -65,6 +66,129 @@ STYLE_BLOCK = """
       gap: 0.375rem;
       align-items: stretch;
       margin: 0 auto;
+      position: relative;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.5rem 0.25rem 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand img {
+      width: 52px;
+      height: auto;
+    }
+
+    .brand-title {
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: 0.01em;
+    }
+
+    .brand-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .menu-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 999px;
+      padding: 0.4rem 0.9rem;
+      cursor: pointer;
+      font-weight: 600;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .menu-toggle span {
+      display: block;
+    }
+
+    .menu-toggle .menu-label {
+      font-size: 0.9rem;
+    }
+
+    .menu-toggle .bar {
+      width: 18px;
+      height: 2px;
+      background: #0f172a;
+      border-radius: 999px;
+      transition: transform 0.2s, opacity 0.2s;
+    }
+
+    .menu-toggle .bars {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .menu-toggle.open .bar:nth-child(1) {
+      transform: translateY(5px) rotate(45deg);
+    }
+
+    .menu-toggle.open .bar:nth-child(2) {
+      opacity: 0;
+    }
+
+    .menu-toggle.open .bar:nth-child(3) {
+      transform: translateY(-5px) rotate(-45deg);
+    }
+
+    .menu-panel {
+      position: absolute;
+      top: 4.5rem;
+      right: 1.5rem;
+      z-index: 50;
+      max-width: 520px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12);
+      padding: 0.75rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0.35rem;
+    }
+
+    .menu-panel[hidden] {
+      display: none;
+    }
+
+    .menu-link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem 0.75rem;
+      border-radius: 12px;
+      text-decoration: none;
+      color: #0f172a;
+      font-weight: 600;
+      border: 1px solid transparent;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+    }
+
+    .menu-link:hover {
+      border-color: rgba(37, 99, 235, 0.4);
+      background: rgba(37, 99, 235, 0.08);
+      color: var(--accent-hover);
+    }
+
+    .menu-link.active {
+      border-color: rgba(37, 99, 235, 0.6);
+      background: rgba(37, 99, 235, 0.15);
+      color: var(--accent);
     }
 
     .logo-card {
@@ -133,10 +257,12 @@ STYLE_BLOCK = """
       position: relative;
       display: flex;
       align-items: center;
+      min-width: 0;
     }
 
     .input-with-actions {
       flex: 1;
+      min-width: 0;
     }
 
     .field-tools {
@@ -258,6 +384,25 @@ STYLE_BLOCK = """
       text-align: center;
     }
 
+    .next-steps {
+      margin-top: 1.5rem;
+      padding: 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #f8fafc;
+    }
+
+    .next-steps h2 {
+      margin: 0 0 0.6rem;
+      font-size: 1.1rem;
+    }
+
+    .action-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.75rem;
+    }
+
     input[type=text],
     input[type=number],
     input[type=file],
@@ -288,10 +433,122 @@ STYLE_BLOCK = """
       letter-spacing: normal;
     }
 
+    .key-input {
+      font-family: "IBM Plex Mono", "SFMono-Regular", "Menlo", monospace;
+      font-size: 0.72rem;
+      letter-spacing: -0.01em;
+      font-variant-ligatures: none;
+    }
+
     .hint {
       font-size: 0.9rem;
       color: var(--text-muted);
       margin-top: 0.35rem;
+    }
+
+    .simple-list {
+      margin: 0.5rem 0 0;
+      padding-left: 1.2rem;
+      color: #0f172a;
+    }
+
+    .simple-list li {
+      margin: 0.25rem 0;
+    }
+
+    .decoder-list {
+      list-style: none;
+      padding: 0;
+      margin: 0.75rem 0 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .decoder-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #f8fafc;
+    }
+
+    .decoder-link {
+      color: #0f172a;
+      text-decoration: none;
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    .decoder-link:hover {
+      color: var(--accent-hover);
+    }
+
+    .decoder-meta {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-left: 0.5rem;
+    }
+
+    .decoder-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .file-actions {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .code-block {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 1rem;
+      border-radius: 12px;
+      font-family: "IBM Plex Mono", "SFMono-Regular", "Menlo", monospace;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      overflow: auto;
+      max-height: 420px;
+    }
+
+    .scan-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      z-index: 80;
+    }
+
+    .scan-overlay[hidden] {
+      display: none;
+    }
+
+    .scan-card {
+      background: #fff;
+      border-radius: 18px;
+      padding: 1.75rem;
+      width: min(560px, 95vw);
+      box-shadow: 0 25px 70px rgba(15, 23, 42, 0.18);
+      border: 1px solid var(--border);
+    }
+
+    .scan-card h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.3rem;
+    }
+
+    .scan-card .form-actions {
+      margin-top: 1rem;
     }
 
     button {
@@ -343,6 +600,68 @@ STYLE_BLOCK = """
     .secondary-button:hover {
       border-color: var(--accent);
       color: var(--accent-hover);
+    }
+
+    .danger-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid #fecaca;
+      background: #fee2e2;
+      color: #b91c1c;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .danger-button:hover {
+      background: #fecaca;
+      border-color: #fca5a5;
+    }
+
+    .danger-button.danger-text {
+      width: auto;
+      height: auto;
+      padding: 0.35rem 0.7rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      gap: 0.35rem;
+    }
+
+    .danger-button svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+      fill: currentColor;
+    }
+
+    .field-controls.key-controls {
+      gap: 0.5rem;
+    }
+
+    .field-controls.key-controls .toggle-visibility {
+      position: static;
+    }
+
+    .primary-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.85rem 1.4rem;
+      border-radius: 12px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: background 0.2s, transform 0.2s;
+    }
+
+    .primary-button:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
     }
 
     .form-actions button,
@@ -732,6 +1051,28 @@ STYLE_BLOCK = """
       gap: 0.85rem;
     }
 
+    .key-grid.device-grid {
+      grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(200px, 1fr) 52px;
+      align-items: end;
+    }
+
+    .remove-cell {
+      display: flex;
+      justify-content: flex-end;
+      align-items: flex-end;
+      padding-bottom: 0.2rem;
+    }
+
+    @media (max-width: 900px) {
+      .key-grid.device-grid {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      }
+
+      .remove-cell {
+        justify-content: flex-start;
+      }
+    }
+
     .device-rows {
       display: flex;
       flex-direction: column;
@@ -1112,8 +1453,136 @@ SCRIPT_BLOCK = """
           });
         });
       }
+
+      const scanOverlay = document.querySelector("[data-scan-overlay]");
+      if (scanOverlay) {
+        const closeBtn = scanOverlay.querySelector("[data-scan-close]");
+        const close = () => {
+          scanOverlay.hidden = true;
+        };
+        closeBtn?.addEventListener("click", close);
+        scanOverlay.addEventListener("click", (event) => {
+          if (event.target === scanOverlay) {
+            close();
+          }
+        });
+      }
+
+      const deleteForm = document.querySelector("[data-delete-form]");
+      if (deleteForm) {
+        const deleteInput = deleteForm.querySelector("[data-delete-input]");
+        document.querySelectorAll("[data-delete-devaddr]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const devaddr = button.dataset.deleteDevaddr || "";
+            if (!devaddr) return;
+            if (!confirm(`Remove device ${devaddr}?`)) {
+              return;
+            }
+            if (deleteInput) {
+              deleteInput.value = devaddr;
+            }
+            deleteForm.submit();
+          });
+        });
+      }
+
+      const decoderDeleteForm = document.querySelector("[data-decoder-delete-form]");
+      if (decoderDeleteForm) {
+        const decoderInput = decoderDeleteForm.querySelector("[data-decoder-delete-input]");
+        document.querySelectorAll("[data-delete-decoder]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const decoderId = button.dataset.deleteDecoder || "";
+            if (!decoderId) return;
+            if (!confirm("Remove this decoder?")) {
+              return;
+            }
+            if (decoderInput) {
+              decoderInput.value = decoderId;
+            }
+            decoderDeleteForm.submit();
+          });
+        });
+      }
+
+      const fileDeleteForm = document.querySelector("[data-file-delete-form]");
+      if (fileDeleteForm) {
+        const fileInput = fileDeleteForm.querySelector("[data-file-delete-input]");
+        document.querySelectorAll("[data-delete-file]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const fileId = button.dataset.deleteFile || "";
+            if (!fileId) return;
+            if (!confirm("Remove this log file?")) {
+              return;
+            }
+            if (fileInput) {
+              fileInput.value = fileId;
+            }
+            fileDeleteForm.submit();
+          });
+        });
+      }
+
+      const menuToggle = document.querySelector("[data-menu-toggle]");
+      const menuPanel = document.querySelector("[data-menu-panel]");
+      if (menuToggle && menuPanel) {
+        const closeMenu = () => {
+          menuPanel.hidden = true;
+          menuToggle.classList.remove("open");
+          menuToggle.setAttribute("aria-expanded", "false");
+        };
+        const openMenu = () => {
+          menuPanel.hidden = false;
+          menuToggle.classList.add("open");
+          menuToggle.setAttribute("aria-expanded", "true");
+        };
+        menuToggle.addEventListener("click", () => {
+          if (menuPanel.hidden) {
+            openMenu();
+          } else {
+            closeMenu();
+          }
+        });
+        menuPanel.querySelectorAll("a").forEach((link) => {
+          link.addEventListener("click", () => closeMenu());
+        });
+        document.addEventListener("click", (event) => {
+          if (menuPanel.hidden) return;
+          if (menuPanel.contains(event.target) || menuToggle.contains(event.target)) {
+            return;
+          }
+          closeMenu();
+        });
+      }
     });
   </script>
+"""
+
+NAV_HTML = """
+  <header class="top-bar">
+    <div class="brand">
+      <img src="{{ logo_url }}" alt="Smart Parks logo">
+      <div>
+        <div class="brand-title">LoRaWAN Log Replay</div>
+        <div class="brand-subtitle">Smart Parks</div>
+      </div>
+    </div>
+    <button type="button" class="menu-toggle" data-menu-toggle aria-expanded="false" aria-controls="site-menu">
+      <span class="bars" aria-hidden="true">
+        <span class="bar"></span>
+        <span class="bar"></span>
+        <span class="bar"></span>
+      </span>
+      <span class="menu-label">Menu</span>
+    </button>
+  </header>
+  <nav id="site-menu" class="menu-panel" data-menu-panel hidden>
+    <a class="menu-link {% if active_page == 'start' %}active{% endif %}" href="{{ start_url }}">Start</a>
+    <a class="menu-link {% if active_page == 'devices' %}active{% endif %}" href="{{ devices_url }}">Devices</a>
+    <a class="menu-link {% if active_page == 'files' %}active{% endif %}" href="{{ files_url }}">Files</a>
+    <a class="menu-link {% if active_page == 'decoders' %}active{% endif %}" href="{{ decoders_url }}">Decoders</a>
+    <a class="menu-link {% if active_page == 'integrations' %}active{% endif %}" href="{{ integrations_url }}">Integrations</a>
+    <a class="menu-link {% if active_page == 'about' %}active{% endif %}" href="{{ about_url }}">About</a>
+  </nav>
 """
 
 HTML = """
@@ -1127,20 +1596,18 @@ HTML = """
 </head>
 <body>
   <div class="outer-column">
-    <div class="logo-card">
-      <img src="{{ logo_url }}" alt="Smart Parks logo">
-    </div>
+    {{ nav_html|safe }}
 
     <div class="card">
-      <h1>LoRaWAN Log Replay</h1>
-      <p class="subtitle">Upload a Semtech UDP JSONL logfile, then replay it or decrypt and decode the payloads.</p>
+      <h1>Start</h1>
+      <p class="subtitle">Upload a log file or pick a stored log file to scan and continue.</p>
 
       <form method="POST" action="{{ scan_url }}" enctype="multipart/form-data" data-scan-url="{{ scan_url }}">
         <div>
           <label for="logfile">Logfile</label>
           <div class="logfile-options">
             <div class="logfile-option">
-              <h3>Upload a logfile</h3>
+              <h3>Upload a log file</h3>
               <input id="logfile" type="file" name="logfile" style="display: none;" aria-hidden="true">
               <div class="file-drop" data-file-drop>
                 <div class="file-text">
@@ -1151,21 +1618,14 @@ HTML = """
               </div>
             </div>
             <div class="logfile-option">
-              <h3>Stored logfiles</h3>
-              <div class="hint">Pick a previously uploaded logfile.</div>
+              <h3>Stored log file</h3>
+              <div class="hint">Pick a previously uploaded log file.</div>
               <select id="stored_log_id" name="stored_log_id">
                 <option value="">Select a stored logfile...</option>
                 {% for log in stored_logs %}
                 <option value="{{ log.id }}" {% if log.id == selected_stored_id %}selected{% endif %}>{{ log.filename }} ({{ log.uploaded_at }})</option>
                 {% endfor %}
               </select>
-            </div>
-            <div class="logfile-option">
-              <h3>Generate a sample logfile</h3>
-              <div class="hint">Download a ready-made JSONL sample.</div>
-              <div class="option-actions">
-                <a class="secondary-button" href="{{ generator_url }}" title="Generate a sample logfile" aria-label="Generate a sample logfile">Generate sample</a>
-              </div>
             </div>
           </div>
         </div>
@@ -1183,43 +1643,15 @@ HTML = """
         {% endif %}
       </form>
 
-      <div class="section-divider"></div>
-
-      <div class="logfile-options">
-        <div class="logfile-option">
-          <h3>Replay to UDP forwarder</h3>
-          <div class="hint">Use the Semtech UDP forwarder settings of your LoRaWAN server.</div>
-          <form method="POST" action="{{ replay_url }}">
-            <div>
-              <label for="host">LoRaWAN server host</label>
-              <input id="host" name="host" type="text" value="{{ form_values.host }}">
-            </div>
-            <div>
-              <label for="port">UDP port</label>
-              <input id="port" name="port" type="number" value="{{ form_values.port }}">
-              <div class="hint">The default Semtech UDP port is 1700.</div>
-            </div>
-            {% if scan_token %}
-            <input type="hidden" name="scan_token" value="{{ scan_token }}">
-            {% endif %}
-            <div class="form-actions">
-              <button type="submit" {% if not scan_token %}disabled{% endif %} data-show-loader="true">Replay</button>
-            </div>
-          </form>
-        </div>
-        <div class="logfile-option">
-          <h3>Decrypt &amp; decode in the app</h3>
-          <div class="hint">Provide NwkSKey and AppSKey per DevAddr, then decode with your payload decoder.</div>
-          <form method="POST" action="{{ decode_url }}">
-            {% if scan_token %}
-            <input type="hidden" name="scan_token" value="{{ scan_token }}">
-            {% endif %}
-            <div class="form-actions">
-              <button type="submit" {% if not scan_token %}disabled{% endif %}>Decrypt &amp; decode</button>
-            </div>
-          </form>
+      {% if scan_token %}
+      <div class="next-steps">
+        <h2>Next steps</h2>
+        <div class="action-grid">
+          <a class="primary-button" href="{{ decode_url }}?scan_token={{ scan_token }}">Decrypt &amp; decode</a>
+          <a class="secondary-button" href="{{ replay_page_url }}?scan_token={{ scan_token }}">Replay</a>
         </div>
       </div>
+      {% endif %}
     </div>
 
     <p class="brand-note">
@@ -1227,10 +1659,81 @@ HTML = """
       <a href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
     </p>
 
+  </div>
+  <div class="loading-overlay" data-loading-overlay hidden>
+    <div class="loading-card">
+      <div class="spinner" aria-hidden="true"></div>
+      <div>Replaying uplinks…</div>
+    </div>
+  </div>
+  {{ script_block|safe }}
+</body>
+</html>
+"""
+
+REPLAY_HTML = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Replay LoRaWAN Log</title>
+  <link rel="icon" type="image/x-icon" href="{{ favicon_url }}">
+  {{ style_block|safe }}
+</head>
+<body>
+  <div class="outer-column">
+    {{ nav_html|safe }}
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h1>Replay</h1>
+          <p class="subtitle">Replay uplinks from <strong>{{ selected_filename }}</strong> to your UDP forwarder.</p>
+        </div>
+        <a class="secondary-button" href="{{ start_url }}">Back to Start</a>
+      </div>
+
+      {% if summary_lines %}
+      <div class="result {{ summary_class }}">
+        {% for line in summary_lines %}
+        <div>{{ line }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if result_lines %}
+      <div class="result {{ result_class }}">
+        {% for line in result_lines %}
+        <div>{{ line }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="section-divider"></div>
+
+      <form method="POST" action="{{ replay_url }}">
+        <div>
+          <label for="host">LoRaWAN server host</label>
+          <input id="host" name="host" type="text" value="{{ form_values.host }}">
+        </div>
+        <div>
+          <label for="port">UDP port</label>
+          <input id="port" name="port" type="number" value="{{ form_values.port }}">
+          <div class="hint">The default Semtech UDP port is 1700.</div>
+        </div>
+        {% if scan_token %}
+        <input type="hidden" name="scan_token" value="{{ scan_token }}">
+        {% endif %}
+        <div class="form-actions">
+          <button type="submit" {% if not scan_token %}disabled{% endif %} data-show-loader="true">Replay</button>
+        </div>
+      </form>
+    </div>
+
     {% if log_lines %}
     <div class="log-wrapper" data-log-section>
-      <details class="log-block">
-        <summary>Show replay log</summary>
+      <details class="log-block" open>
+        <summary>Replay log</summary>
         <div class="log-controls">
           <label>
             Rows to display:
@@ -1277,12 +1780,51 @@ HTML = """
       </details>
     </div>
     {% endif %}
+
+    <p class="brand-note">
+      A Smart Parks tool to Protect Wildlife with Passion and Technology.
+      <a href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
+    </p>
   </div>
   <div class="loading-overlay" data-loading-overlay hidden>
     <div class="loading-card">
       <div class="spinner" aria-hidden="true"></div>
       <div>Replaying uplinks…</div>
     </div>
+  </div>
+  {{ script_block|safe }}
+</body>
+</html>
+"""
+
+SIMPLE_PAGE_HTML = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{{ page_title }}</title>
+  <link rel="icon" type="image/x-icon" href="{{ favicon_url }}">
+  {{ style_block|safe }}
+</head>
+<body>
+  <div class="outer-column">
+    {{ nav_html|safe }}
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h1>{{ title }}</h1>
+          <p class="subtitle">{{ subtitle }}</p>
+        </div>
+        <a class="secondary-button" href="{{ start_url }}">Back to Start</a>
+      </div>
+      {{ body_html|safe }}
+    </div>
+
+    <p class="brand-note">
+      A Smart Parks tool to Protect Wildlife with Passion and Technology.
+      <a href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
+    </p>
   </div>
   {{ script_block|safe }}
 </body>
@@ -1300,9 +1842,7 @@ DECODE_HTML = """
 </head>
 <body>
   <div class="outer-column">
-    <div class="logo-card">
-      <img src="{{ logo_url }}" alt="Smart Parks logo">
-    </div>
+    {{ nav_html|safe }}
 
     <div class="card">
       <div class="card-header">
@@ -1310,7 +1850,7 @@ DECODE_HTML = """
           <h1>Decrypt &amp; Decode</h1>
           <p class="subtitle">Decrypt uplinks from <strong>{{ selected_filename }}</strong> and decode them with your payload decoder.</p>
         </div>
-        <a class="secondary-button" href="{{ replay_url }}">Back to Replay</a>
+        <a class="secondary-button" href="{{ start_url }}">Back to Start</a>
       </div>
 
       {% if summary_lines %}
@@ -1507,9 +2047,7 @@ DEVICE_KEYS_HTML = """
 </head>
 <body>
   <div class="outer-column">
-    <div class="logo-card">
-      <img src="{{ logo_url }}" alt="Smart Parks logo">
-    </div>
+    {{ nav_html|safe }}
 
     <div class="card">
       <div class="card-header">
@@ -1517,7 +2055,7 @@ DEVICE_KEYS_HTML = """
           <h1>Device Session Keys</h1>
           <p class="subtitle">Store DevAddr, optional names, and ABP session keys for decoding.</p>
         </div>
-        <a class="secondary-button" href="{{ decode_url }}">Back to Decode</a>
+        <a class="secondary-button" href="{{ start_url }}">Back to Start</a>
       </div>
 
       {% if summary_lines %}
@@ -1527,6 +2065,14 @@ DEVICE_KEYS_HTML = """
         {% endfor %}
       </div>
       {% endif %}
+
+      <form method="POST" action="{{ keys_url }}" data-delete-form>
+        {% if scan_token %}
+        <input type="hidden" name="scan_token" value="{{ scan_token }}">
+        {% endif %}
+        <input type="hidden" name="action" value="delete_device">
+        <input type="hidden" name="delete_devaddr" value="" data-delete-input>
+      </form>
 
       <form method="POST" action="{{ keys_url }}">
         {% if scan_token %}
@@ -1544,24 +2090,29 @@ DEVICE_KEYS_HTML = """
               <div class="field-header">
                 <label>DevAddr {{ devaddr }}</label>
               </div>
-              <div class="key-grid">
+              <div class="key-grid device-grid">
                 <div>
                   <label for="name_{{ devaddr }}">Device name</label>
                   <input id="name_{{ devaddr }}" name="name_{{ devaddr }}" type="text" value="{{ credentials.get(devaddr, {}).get('name', '') }}">
                 </div>
                 <div>
                   <label for="nwk_{{ devaddr }}">NwkSKey</label>
-                  <div class="field-controls">
-                    <input class="input-with-actions" id="nwk_{{ devaddr }}" name="nwk_{{ devaddr }}" type="password" value="{{ credentials.get(devaddr, {}).get('nwk_skey', '') }}">
+                  <div class="field-controls key-controls">
+                    <input class="input-with-actions key-input" id="nwk_{{ devaddr }}" name="nwk_{{ devaddr }}" type="password" value="{{ credentials.get(devaddr, {}).get('nwk_skey', '') }}" pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" title="32 hex characters" autocomplete="off" spellcheck="false">
                     <button type="button" class="toggle-visibility" data-toggle-visibility="nwk_{{ devaddr }}" aria-pressed="false" title="Show key">👁</button>
                   </div>
                 </div>
                 <div>
                   <label for="app_{{ devaddr }}">AppSKey</label>
-                  <div class="field-controls">
-                    <input class="input-with-actions" id="app_{{ devaddr }}" name="app_{{ devaddr }}" type="password" value="{{ credentials.get(devaddr, {}).get('app_skey', '') }}">
+                  <div class="field-controls key-controls">
+                    <input class="input-with-actions key-input" id="app_{{ devaddr }}" name="app_{{ devaddr }}" type="password" value="{{ credentials.get(devaddr, {}).get('app_skey', '') }}" pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" title="32 hex characters" autocomplete="off" spellcheck="false">
                     <button type="button" class="toggle-visibility" data-toggle-visibility="app_{{ devaddr }}" aria-pressed="false" title="Show key">👁</button>
                   </div>
+                </div>
+                <div class="remove-cell">
+                  <button type="button" class="danger-button" data-delete-devaddr="{{ devaddr }}" title="Remove device" aria-label="Remove device">
+                    🗑
+                  </button>
                 </div>
               </div>
             </div>
@@ -1596,11 +2147,11 @@ DEVICE_KEYS_HTML = """
             </div>
             <div>
               <label for="new_nwk">NwkSKey (hex)</label>
-              <input id="new_nwk" name="new_nwk" type="password" placeholder="000102030405060708090A0B0C0D0E0F">
+              <input id="new_nwk" name="new_nwk" type="password" placeholder="000102030405060708090A0B0C0D0E0F" pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" title="32 hex characters" autocomplete="off" spellcheck="false">
             </div>
             <div>
               <label for="new_app">AppSKey (hex)</label>
-              <input id="new_app" name="new_app" type="password" placeholder="F0E0D0C0B0A090807060504030201000">
+              <input id="new_app" name="new_app" type="password" placeholder="F0E0D0C0B0A090807060504030201000" pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" title="32 hex characters" autocomplete="off" spellcheck="false">
             </div>
           </div>
         </div>
@@ -1615,6 +2166,21 @@ DEVICE_KEYS_HTML = """
       <a href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
     </p>
   </div>
+  {% if scan_summary_lines %}
+  <div class="scan-overlay" data-scan-overlay>
+    <div class="scan-card">
+      <h2>Scan results{% if scan_filename %} — {{ scan_filename }}{% endif %}</h2>
+      <div class="result success">
+        {% for line in scan_summary_lines %}
+        <div>{{ line }}</div>
+        {% endfor %}
+      </div>
+      <div class="form-actions">
+        <button type="button" data-scan-close>Close</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   {{ script_block|safe }}
 </body>
 </html>
@@ -1631,9 +2197,7 @@ GENERATOR_HTML = """
 </head>
 <body>
   <div class="outer-column">
-    <div class="logo-card">
-      <img src="{{ logo_url }}" alt="Smart Parks logo">
-    </div>
+    {{ nav_html|safe }}
 
     <div class="card">
       <div class="card-header">
@@ -1641,7 +2205,7 @@ GENERATOR_HTML = """
           <h1>Generate Test Logfile</h1>
           <p class="subtitle">Configure LoRaWAN ABP parameters and download a JSON Lines log.</p>
         </div>
-        <a class="secondary-button" href="{{ replay_url }}">Back to Replay</a>
+        <a class="secondary-button" href="{{ files_url }}">Back to Files</a>
       </div>
 
       <form method="POST" action="{{ generator_url }}">
@@ -1777,7 +2341,7 @@ GENERATOR_HTML = """
 
         <div class="form-actions">
           <button type="submit">Generate</button>
-          <a class="secondary-button" href="{{ replay_url }}">Back to Replay</a>
+          <a class="secondary-button" href="{{ files_url }}">Back to Files</a>
         </div>
       </form>
     </div>
@@ -1921,6 +2485,46 @@ def store_uploaded_log(logfile):
     entries.insert(0, entry)
     save_json_file(UPLOAD_INDEX_PATH, entries[:200])
     return entry
+
+
+def delete_stored_log(log_id):
+    entries = load_json_file(UPLOAD_INDEX_PATH, [])
+    kept = []
+    removed_path = None
+    for entry in entries:
+        if entry.get("id") == log_id:
+            removed_path = entry.get("path")
+        else:
+            kept.append(entry)
+    save_json_file(UPLOAD_INDEX_PATH, kept)
+    if removed_path and os.path.exists(removed_path):
+        os.remove(removed_path)
+    return removed_path is not None
+
+
+def scan_stored_log(log_id):
+    entry = get_stored_log_entry(log_id)
+    if not entry:
+        raise ValueError("Log file not found.")
+    with open(entry["path"], "rb") as handle:
+        parsed, gateways, devaddrs, scan_errors = scan_logfile(handle)
+    if scan_errors:
+        preview = scan_errors[:10]
+        error_lines = [
+            "Logfile scan summary:",
+            f"Uplinks (valid)={len(parsed)}",
+            format_list("Gateway EUI", gateways),
+            format_list("DevAddr (hex)", devaddrs),
+            f"Validation errors={len(scan_errors)}.",
+        ]
+        error_lines.extend(preview)
+        if len(scan_errors) > len(preview):
+            error_lines.append(f"... (+{len(scan_errors) - len(preview)} more)")
+        raise ValueError("\n".join(error_lines))
+    if not parsed:
+        raise ValueError("No valid uplinks found.")
+    scan_token = store_scan_result(parsed, gateways, devaddrs, entry["filename"], entry["id"])
+    return scan_token, entry
 
 
 def load_credentials():
@@ -2303,13 +2907,11 @@ def list_decoders():
     for filename in sorted(os.listdir(BUILTIN_DECODER_DIR)):
         if filename.lower().endswith(".js"):
             decoder_id = f"builtin:{filename}"
-            label = filename[:-3].replace("_", " ").replace("-", " ").title()
-            decoders.append({"id": decoder_id, "label": label, "source": filename})
+            decoders.append({"id": decoder_id, "label": filename, "source": "builtin"})
     for filename in sorted(os.listdir(DECODER_DIR)):
         if filename.lower().endswith(".js"):
             decoder_id = f"file:{filename}"
-            label = filename[:-3].replace("_", " ").replace("-", " ").title()
-            decoders.append({"id": decoder_id, "label": label, "source": filename})
+            decoders.append({"id": decoder_id, "label": filename, "source": "upload"})
     return decoders
 
 
@@ -2366,6 +2968,34 @@ def load_decoder(decoder_id):
     raise ValueError("Unknown decoder selection.")
 
 
+def resolve_decoder_path(decoder_id):
+    if decoder_id.startswith("builtin:"):
+        filename = decoder_id.split(":", 1)[1]
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise ValueError("Invalid decoder selection.")
+        return os.path.join(BUILTIN_DECODER_DIR, filename)
+    if decoder_id.startswith("file:"):
+        filename = decoder_id.split(":", 1)[1]
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise ValueError("Invalid decoder selection.")
+        return os.path.join(DECODER_DIR, filename)
+    raise ValueError("Unknown decoder selection.")
+
+
+def nav_context(active_page, logo_url):
+    context = {
+        "active_page": active_page,
+        "start_url": url_for("index"),
+        "devices_url": url_for("device_keys"),
+        "files_url": url_for("files_page"),
+        "decoders_url": url_for("decoders_page"),
+        "integrations_url": url_for("integrations_page"),
+        "about_url": url_for("about_page"),
+    }
+    nav_html = render_template_string(NAV_HTML, logo_url=logo_url, **context)
+    return {**context, "nav_html": nav_html}
+
+
 def render_main_page(
     result_lines=None,
     result_class="",
@@ -2383,16 +3013,17 @@ def render_main_page(
     if form_values:
         values["host"] = form_values.get("host", values["host"])
         values["port"] = form_values.get("port", values["port"])
+    logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
         HTML,
         style_block=STYLE_BLOCK,
         script_block=SCRIPT_BLOCK,
-        logo_url=url_for("static", filename="company_logo.png"),
+        logo_url=logo_url,
         favicon_url=url_for("static", filename="favicon.ico"),
         replay_url=url_for("replay"),
+        replay_page_url=url_for("replay"),
         scan_url=url_for("scan"),
         decode_url=url_for("decode"),
-        generator_url=url_for("generate_log_page"),
         form_values=values,
         result_lines=result_lines or [],
         result_class=result_class,
@@ -2401,25 +3032,80 @@ def render_main_page(
         selected_filename=selected_filename,
         stored_logs=stored_logs or [],
         selected_stored_id=selected_stored_id,
+        **nav_context("start", logo_url),
+    )
+
+
+def render_replay_page(
+    form_values=None,
+    scan_token="",
+    selected_filename="",
+    summary_lines=None,
+    summary_class="",
+    result_lines=None,
+    result_class="",
+    log_lines=None,
+):
+    values = {
+        "host": "127.0.0.1",
+        "port": "1700",
+    }
+    if form_values:
+        values["host"] = form_values.get("host", values["host"])
+        values["port"] = form_values.get("port", values["port"])
+    logo_url = url_for("static", filename="company_logo.png")
+    return render_template_string(
+        REPLAY_HTML,
+        style_block=STYLE_BLOCK,
+        script_block=SCRIPT_BLOCK,
+        logo_url=logo_url,
+        favicon_url=url_for("static", filename="favicon.ico"),
+        replay_url=url_for("replay"),
+        form_values=values,
+        scan_token=scan_token,
+        selected_filename=selected_filename,
+        summary_lines=summary_lines or [],
+        summary_class=summary_class,
+        result_lines=result_lines or [],
+        result_class=result_class,
+        log_lines=log_lines or [],
+        **nav_context("start", logo_url),
+    )
+
+
+def render_simple_page(title, subtitle, body_html, active_page, page_title=None):
+    logo_url = url_for("static", filename="company_logo.png")
+    return render_template_string(
+        SIMPLE_PAGE_HTML,
+        style_block=STYLE_BLOCK,
+        script_block=SCRIPT_BLOCK,
+        logo_url=logo_url,
+        favicon_url=url_for("static", filename="favicon.ico"),
+        title=title,
+        subtitle=subtitle,
+        body_html=body_html,
+        page_title=page_title or title,
+        **nav_context(active_page, logo_url),
     )
 
 
 def render_generator_page(form_values=None, error_message=""):
     values = form_values if form_values is not None else get_generator_form_values()
+    logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
         GENERATOR_HTML,
         style_block=STYLE_BLOCK,
         script_block=SCRIPT_BLOCK,
-        logo_url=url_for("static", filename="company_logo.png"),
+        logo_url=logo_url,
         favicon_url=url_for("static", filename="favicon.ico"),
         generator_url=url_for("generate_log_page"),
-        replay_url=url_for("index"),
         form_values=values,
         error_message=error_message,
         freq_options=EU868_FREQ_OPTIONS,
         datarate_options=EU868_DATARATE_OPTIONS,
         coding_rate_options=EU868_CODING_RATE_OPTIONS,
         payload_examples=PAYLOAD_EXAMPLES,
+        **nav_context("files", logo_url),
     )
 
 
@@ -2438,13 +3124,13 @@ def render_decode_page(
 ):
     export_csv_url = url_for("export_results", fmt="csv", token=export_token) if export_token else ""
     export_json_url = url_for("export_results", fmt="json", token=export_token) if export_token else ""
+    logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
         DECODE_HTML,
         style_block=STYLE_BLOCK,
         script_block=SCRIPT_BLOCK,
-        logo_url=url_for("static", filename="company_logo.png"),
+        logo_url=logo_url,
         favicon_url=url_for("static", filename="favicon.ico"),
-        replay_url=url_for("index"),
         decode_url=url_for("decode"),
         keys_url=url_for("device_keys"),
         scan_token=scan_token,
@@ -2459,6 +3145,7 @@ def render_decode_page(
         selected_filename=selected_filename,
         export_csv_url=export_csv_url,
         export_json_url=export_json_url,
+        **nav_context("decoders", logo_url),
     )
 
 
@@ -2467,16 +3154,19 @@ def render_device_keys_page(
     summary_lines=None,
     result_class="success",
     scan_token="",
+    scan_summary_lines=None,
+    scan_filename="",
 ):
     known_devaddrs = sorted(credentials.keys())
     decode_url = url_for("decode")
     if scan_token:
         decode_url = f"{decode_url}?scan_token={scan_token}"
+    logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
         DEVICE_KEYS_HTML,
         style_block=STYLE_BLOCK,
         script_block=SCRIPT_BLOCK,
-        logo_url=url_for("static", filename="company_logo.png"),
+        logo_url=logo_url,
         favicon_url=url_for("static", filename="favicon.ico"),
         decode_url=decode_url,
         keys_url=url_for("device_keys"),
@@ -2485,6 +3175,9 @@ def render_device_keys_page(
         credentials=credentials,
         known_devaddrs=known_devaddrs,
         scan_token=scan_token,
+        scan_summary_lines=scan_summary_lines or [],
+        scan_filename=scan_filename,
+        **nav_context("devices", logo_url),
     )
 
 
@@ -2494,10 +3187,434 @@ def index():
     return render_main_page(stored_logs=stored_logs)
 
 
+@app.route("/keys", methods=["GET"])
+def keys_redirect():
+    return redirect(url_for("device_keys"))
+
+
+@app.route("/files", methods=["GET"])
+def files_page():
+    stored_logs = list_stored_logs()
+    if stored_logs:
+        items = []
+        for log in stored_logs:
+            log_id = html.escape(log["id"])
+            filename = html.escape(log["filename"])
+            uploaded_at = html.escape(log["uploaded_at"])
+            view_url = url_for("view_log_file", log_id=log["id"])
+            download_url = url_for("download_log_file", log_id=log["id"])
+            decode_url = url_for("start_decode_from_file", log_id=log["id"])
+            replay_url = url_for("start_replay_from_file", log_id=log["id"])
+            items.append(
+                f"<li class=\"decoder-item\">"
+                f"<div>"
+                f"<a class=\"decoder-link\" href=\"{view_url}\">{filename}</a>"
+                f"<span class=\"decoder-meta\">({uploaded_at})</span>"
+                f"</div>"
+                f"<div class=\"file-actions\">"
+                f"<a class=\"secondary-button\" href=\"{view_url}\">View</a>"
+                f"<a class=\"secondary-button\" href=\"{download_url}\">Download</a>"
+                f"<a class=\"secondary-button\" href=\"{decode_url}\">Decrypt &amp; decode</a>"
+                f"<a class=\"secondary-button\" href=\"{url_for('start_scan_from_file', log_id=log['id'])}\">Scan</a>"
+                f"<a class=\"secondary-button\" href=\"{replay_url}\">Replay</a>"
+                f"<button type=\"button\" class=\"danger-button danger-text\" "
+                f"data-delete-file=\"{log_id}\" "
+                f"title=\"Remove log file\" aria-label=\"Remove log file\">🗑<span>Remove</span></button>"
+                f"</div>"
+                f"</li>"
+            )
+        stored_html = f"<ul class=\"decoder-list\">{''.join(items)}</ul>"
+    else:
+        stored_html = "<div class=\"hint\">No stored log files yet.</div>"
+
+    body_html = f"""
+      <form method="POST" action="{url_for('delete_log_file')}" data-file-delete-form>
+        <input type="hidden" name="log_id" value="" data-file-delete-input>
+      </form>
+      <div class="field-group">
+        <div class="field-header">
+          <label>Stored log files</label>
+        </div>
+        <div class="hint">Review, download, and process previously uploaded logs.</div>
+        {stored_html}
+      </div>
+      <div class="section-divider"></div>
+      <div class="logfile-options">
+        <div class="logfile-option">
+          <h3>Upload a log file</h3>
+          <div class="hint">Upload a new JSONL log and scan it right away.</div>
+          <form method="POST" action="{url_for('scan')}" enctype="multipart/form-data" data-scan-url="{url_for('scan')}">
+            <input id="logfile" type="file" name="logfile" style="display: none;" aria-hidden="true">
+            <input type="hidden" name="redirect_to" value="files">
+            <div class="file-drop" data-file-drop>
+              <div class="file-text">
+                <strong>Click to choose or drag & drop</strong>
+                <div class="file-selected" data-file-selected>No file selected</div>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="logfile-option">
+          <h3>Generate a sample log file</h3>
+          <div class="hint">Download a ready-made JSONL sample.</div>
+          <div class="option-actions">
+            <a class="secondary-button" href="{url_for('generate_log_page')}">Generate sample</a>
+          </div>
+        </div>
+      </div>
+    """
+    return render_simple_page(
+        title="Files",
+        subtitle="Review stored log files and generate samples.",
+        body_html=body_html,
+        active_page="files",
+    )
+
+
+@app.route("/decoders", methods=["GET", "POST"])
+def decoders_page():
+    summary_lines = []
+    result_class = "success"
+    action = request.form.get("action", "").strip()
+    if request.method == "POST" and action == "upload_decoder":
+        decoder_file = request.files.get("decoder_file")
+        if not decoder_file or not decoder_file.filename:
+            summary_lines = ["Please choose a decoder file to upload."]
+            result_class = "error"
+        else:
+            filename = secure_filename(decoder_file.filename)
+            if not filename.lower().endswith(".js"):
+                summary_lines = ["Decoder file must be a .js file."]
+                result_class = "error"
+            else:
+                ensure_data_dirs()
+                path = os.path.join(DECODER_DIR, filename)
+                decoder_file.save(path)
+                summary_lines = [f"Decoder uploaded: {filename}"]
+                result_class = "success"
+    if request.method == "POST" and action == "delete_decoder":
+        decoder_id = request.form.get("delete_decoder_id", "").strip()
+        if not decoder_id:
+            summary_lines = ["Select a decoder to remove."]
+            result_class = "error"
+        elif not decoder_id.startswith("file:"):
+            summary_lines = ["Built-in decoders cannot be removed."]
+            result_class = "error"
+        else:
+            try:
+                path = resolve_decoder_path(decoder_id)
+            except ValueError as exc:
+                summary_lines = [str(exc)]
+                result_class = "error"
+            else:
+                if os.path.exists(path):
+                    os.remove(path)
+                    summary_lines = ["Decoder removed."]
+                    result_class = "success"
+                else:
+                    summary_lines = ["Decoder file not found."]
+                    result_class = "error"
+
+    decoders = list_decoders()
+    if decoders:
+        items = []
+        for decoder in decoders:
+            label = html.escape(decoder["label"])
+            source = html.escape(decoder["source"])
+            decoder_id = html.escape(decoder["id"])
+            view_url = url_for("view_decoder", decoder_id=decoder["id"])
+            actions_html = ""
+            if decoder["id"] == "raw":
+                actions_html = ""
+            else:
+                delete_button = ""
+                if decoder["id"].startswith("file:"):
+                    delete_button = (
+                        f"<button type=\"button\" class=\"danger-button danger-text\" "
+                        f"data-delete-decoder=\"{decoder_id}\" "
+                        f"title=\"Remove decoder\" aria-label=\"Remove decoder\">🗑<span>Remove</span></button>"
+                    )
+                actions_html = (
+                    f"<div class=\"decoder-actions\">"
+                    f"<a class=\"secondary-button\" href=\"{view_url}\">View</a>"
+                    f"{delete_button}"
+                    f"</div>"
+                )
+            if decoder["id"] == "raw":
+                name_html = f"<span class=\"decoder-link\">{label}</span>"
+            else:
+                name_html = f"<a class=\"decoder-link\" href=\"{view_url}\">{label}</a>"
+            items.append(
+                f"<li class=\"decoder-item\">"
+                f"<div>"
+                f"{name_html}"
+                f"<span class=\"decoder-meta\">({source})</span>"
+                f"</div>"
+                f"{actions_html}"
+                f"</li>"
+            )
+        decoder_html = f"<ul class=\"decoder-list\">{''.join(items)}</ul>"
+    else:
+        decoder_html = "<div class=\"hint\">No decoders available yet.</div>"
+
+    result_html = ""
+    if summary_lines:
+        summary_items = "".join(f"<div>{html.escape(line)}</div>" for line in summary_lines)
+        result_html = f"<div class=\"result {result_class}\">{summary_items}</div>"
+
+    body_html = f"""
+      {result_html}
+      <form method="POST" action="{url_for('decoders_page')}" data-decoder-delete-form>
+        <input type="hidden" name="action" value="delete_decoder">
+        <input type="hidden" name="delete_decoder_id" value="" data-decoder-delete-input>
+      </form>
+      <div class="field-group">
+        <div class="field-header">
+          <label>Available decoders</label>
+        </div>
+        <div class="hint">Click a decoder to review its JavaScript.</div>
+        {decoder_html}
+      </div>
+      <div class="section-divider"></div>
+      <form method="POST" action="{url_for('decoders_page')}" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="upload_decoder">
+        <div class="field-group">
+          <div class="field-header">
+            <label for="decoder_file">Add a decoder</label>
+          </div>
+          <input id="decoder_file" name="decoder_file" type="file" accept=".js">
+          <div class="hint">JS decoders should define <code>Decoder(bytes, port)</code> or <code>decodeUplink({{ bytes, fPort }})</code>.</div>
+        </div>
+        <div class="form-actions">
+          <button type="submit">Upload decoder</button>
+        </div>
+      </form>
+    """
+    return render_simple_page(
+        title="Decoders",
+        subtitle="Upload and select payload decoders for log files.",
+        body_html=body_html,
+        active_page="decoders",
+    )
+
+
+@app.route("/integrations", methods=["GET"])
+def integrations_page():
+    body_html = f"""
+      <div class="logfile-options">
+        <div class="logfile-option">
+          <h3>UDP forwarder replay</h3>
+          <div class="hint">Replay uplinks to a Semtech UDP forwarder compatible server.</div>
+          <div class="option-actions">
+            <a class="secondary-button" href="{url_for('replay')}">Open replay</a>
+          </div>
+        </div>
+        <div class="logfile-option">
+          <h3>Decoder exports</h3>
+          <div class="hint">Export decoded payloads as CSV or JSON after decoding.</div>
+        </div>
+      </div>
+    """
+    return render_simple_page(
+        title="Integrations",
+        subtitle="Connect log playback to external tools and services.",
+        body_html=body_html,
+        active_page="integrations",
+    )
+
+
+@app.route("/decoders/view", methods=["GET"])
+def view_decoder():
+    decoder_id = request.args.get("decoder_id", "").strip()
+    if not decoder_id:
+        return render_simple_page(
+            title="Decoder Viewer",
+            subtitle="Select a decoder to view its source.",
+            body_html="<div class=\"hint\">No decoder selected.</div>",
+            active_page="decoders",
+            page_title="Decoder Viewer",
+        )
+    try:
+        path = resolve_decoder_path(decoder_id)
+    except ValueError as exc:
+        return render_simple_page(
+            title="Decoder Viewer",
+            subtitle="Unable to load decoder.",
+            body_html=f"<div class=\"result error\">{html.escape(str(exc))}</div>",
+            active_page="decoders",
+            page_title="Decoder Viewer",
+        )
+    if not os.path.exists(path):
+        return render_simple_page(
+            title="Decoder Viewer",
+            subtitle="Decoder not found.",
+            body_html="<div class=\"result error\">Decoder file not found.</div>",
+            active_page="decoders",
+            page_title="Decoder Viewer",
+        )
+    with open(path, "r", encoding="utf-8") as handle:
+        content = handle.read()
+    body_html = f"""
+      <div class="field-group">
+        <div class="field-header">
+          <label>{html.escape(os.path.basename(path))}</label>
+        </div>
+        <pre class="code-block">{html.escape(content)}</pre>
+      </div>
+      <div class="form-actions">
+        <a class="secondary-button" href="{url_for('decoders_page')}">Back to Decoders</a>
+      </div>
+    """
+    return render_simple_page(
+        title="Decoder Viewer",
+        subtitle="Review the decoder JavaScript before using it.",
+        body_html=body_html,
+        active_page="decoders",
+        page_title="Decoder Viewer",
+    )
+
+
+@app.route("/files/view", methods=["GET"])
+def view_log_file():
+    log_id = request.args.get("log_id", "").strip()
+    entry = get_stored_log_entry(log_id) if log_id else None
+    if not entry:
+        return render_simple_page(
+            title="Log File Viewer",
+            subtitle="Log file not found.",
+            body_html="<div class=\"result error\">Log file not found.</div>",
+            active_page="files",
+            page_title="Log File Viewer",
+        )
+    path = entry["path"]
+    max_bytes = 200000
+    with open(path, "rb") as handle:
+        content_bytes = handle.read(max_bytes + 1)
+    truncated = len(content_bytes) > max_bytes
+    content_bytes = content_bytes[:max_bytes]
+    content = content_bytes.decode("utf-8", errors="replace")
+    note = ""
+    if truncated:
+        note = "<div class=\"hint\">Preview truncated to 200 KB.</div>"
+    body_html = f"""
+      <div class="field-group">
+        <div class="field-header">
+          <label>{html.escape(entry["filename"])}</label>
+        </div>
+        {note}
+        <pre class="code-block">{html.escape(content)}</pre>
+      </div>
+      <div class="form-actions">
+        <a class="secondary-button" href="{url_for('files_page')}">Back to Files</a>
+      </div>
+    """
+    return render_simple_page(
+        title="Log File Viewer",
+        subtitle="Review the stored log file content.",
+        body_html=body_html,
+        active_page="files",
+        page_title="Log File Viewer",
+    )
+
+
+@app.route("/files/download", methods=["GET"])
+def download_log_file():
+    log_id = request.args.get("log_id", "").strip()
+    entry = get_stored_log_entry(log_id) if log_id else None
+    if not entry or not os.path.exists(entry["path"]):
+        return "Log file not found.", 404
+    return send_file(entry["path"], as_attachment=True, download_name=entry["filename"])
+
+
+@app.route("/files/delete", methods=["POST"])
+def delete_log_file():
+    log_id = request.form.get("log_id", "").strip()
+    if log_id:
+        delete_stored_log(log_id)
+    return redirect(url_for("files_page"))
+
+
+@app.route("/files/decode", methods=["GET"])
+def start_decode_from_file():
+    log_id = request.args.get("log_id", "").strip()
+    try:
+        scan_token, _entry = scan_stored_log(log_id)
+    except ValueError as exc:
+        body_html = f"<div class=\"result error\">{html.escape(str(exc))}</div>"
+        return render_simple_page(
+            title="Files",
+            subtitle="Review stored log files and generate samples.",
+            body_html=body_html,
+            active_page="files",
+            page_title="Files",
+        )
+    return redirect(url_for("decode", scan_token=scan_token))
+
+
+@app.route("/files/replay", methods=["GET"])
+def start_replay_from_file():
+    log_id = request.args.get("log_id", "").strip()
+    try:
+        scan_token, _entry = scan_stored_log(log_id)
+    except ValueError as exc:
+        body_html = f"<div class=\"result error\">{html.escape(str(exc))}</div>"
+        return render_simple_page(
+            title="Files",
+            subtitle="Review stored log files and generate samples.",
+            body_html=body_html,
+            active_page="files",
+            page_title="Files",
+        )
+    return redirect(url_for("replay", scan_token=scan_token))
+
+
+@app.route("/files/scan", methods=["GET"])
+def start_scan_from_file():
+    log_id = request.args.get("log_id", "").strip()
+    try:
+        scan_token, _entry = scan_stored_log(log_id)
+    except ValueError as exc:
+        body_html = f"<div class=\"result error\">{html.escape(str(exc))}</div>"
+        return render_simple_page(
+            title="Files",
+            subtitle="Review stored log files and generate samples.",
+            body_html=body_html,
+            active_page="files",
+            page_title="Files",
+        )
+    return redirect(url_for("device_keys", scan_token=scan_token, show_scan="1"))
+
+
+@app.route("/about", methods=["GET"])
+def about_page():
+    body_html = """
+      <div class="logfile-options">
+        <div class="logfile-option">
+          <h3>LoRaWAN Log Replay</h3>
+          <div class="hint">Replay, decrypt, and decode Semtech UDP JSONL log files.</div>
+        </div>
+        <div class="logfile-option">
+          <h3>Smart Parks</h3>
+          <div class="hint">Protect Wildlife with Passion and Technology.</div>
+          <div class="option-actions">
+            <a class="secondary-button" href="https://www.smartparks.org" target="_blank" rel="noopener">Visit smartparks.org</a>
+          </div>
+        </div>
+      </div>
+    """
+    return render_simple_page(
+        title="About",
+        subtitle="Product info and organization details.",
+        body_html=body_html,
+        active_page="about",
+    )
+
+
 @app.route("/scan", methods=["POST"])
 def scan():
     logfile = request.files.get("logfile")
     stored_log_id = request.form.get("stored_log_id", "").strip()
+    redirect_to = request.form.get("redirect_to", "").strip()
     stored_logs = list_stored_logs()
     selected_filename = ""
     selected_stored_id = stored_log_id
@@ -2508,6 +3625,8 @@ def scan():
         selected_filename = entry["filename"]
         selected_stored_id = entry["id"]
         stored_logs = list_stored_logs()
+        if redirect_to == "files":
+            return redirect(url_for("files_page"))
         stream = open(entry["path"], "rb")
     elif stored_log_id:
         entry = get_stored_log_entry(stored_log_id)
@@ -2516,6 +3635,8 @@ def scan():
             stream = open(entry["path"], "rb")
 
     if stream is None:
+        if redirect_to == "files":
+            return redirect(url_for("files_page"))
         return render_main_page(
             ["Please upload a logfile or select a stored logfile."],
             "error",
@@ -2572,69 +3693,24 @@ def scan():
     )
 
 
-@app.route("/replay", methods=["POST"])
+@app.route("/replay", methods=["GET", "POST"])
 def replay():
-    host = request.form.get("host", "").strip() or "127.0.0.1"
-    port_raw = request.form.get("port", "1700").strip()
-    scan_token = request.form.get("scan_token", "").strip()
-    logfile = request.files.get("logfile")
-    stored_log_id = request.form.get("stored_log_id", "").strip()
-    stored_logs = list_stored_logs()
-    selected_stored_id = stored_log_id
-    log_lines = []
-
-    if not scan_token and not logfile:
-        return render_main_page(
-            ["Please upload a logfile or scan a stored logfile."],
-            "error",
-            form_values=request.form,
-            stored_logs=stored_logs,
-            selected_stored_id=selected_stored_id,
+    scan_token = (request.values.get("scan_token") or "").strip()
+    if not scan_token:
+        return render_replay_page(
+            summary_lines=["Scan a logfile first."],
+            summary_class="error",
         )
 
-    try:
-        port = int(port_raw)
-    except ValueError:
-        return render_main_page([f"Invalid UDP port: {port_raw}"], "error", form_values=request.form)
+    cached = get_scan_result(scan_token)
+    if not cached:
+        return render_replay_page(
+            summary_lines=["Scan expired or not found. Please upload the logfile again."],
+            summary_class="error",
+            scan_token=scan_token,
+        )
 
-    selected_filename = ""
-    if scan_token:
-        cached = get_scan_result(scan_token)
-        if not cached:
-            return render_main_page(
-                ["Scan expired or not found. Please upload the logfile again."],
-                "error",
-                form_values=request.form,
-                stored_logs=stored_logs,
-                selected_stored_id=selected_stored_id,
-            )
-        parsed, gateways, devaddrs, selected_filename, selected_stored_id = cached
-        scan_errors = []
-    else:
-        stream = None
-        if logfile and logfile.filename:
-            entry = store_uploaded_log(logfile)
-            selected_filename = entry["filename"]
-            selected_stored_id = entry["id"]
-            stored_logs = list_stored_logs()
-            stream = open(entry["path"], "rb")
-        elif stored_log_id:
-            entry = get_stored_log_entry(stored_log_id)
-            if entry:
-                selected_filename = entry["filename"]
-                stream = open(entry["path"], "rb")
-
-        if stream is None:
-            return render_main_page(
-                ["Please upload a logfile or select a stored logfile."],
-                "error",
-                form_values=request.form,
-                stored_logs=stored_logs,
-                selected_stored_id=selected_stored_id,
-            )
-
-        with stream:
-            parsed, gateways, devaddrs, scan_errors = scan_logfile(stream)
+    parsed, gateways, devaddrs, selected_filename, _stored_log_id = cached
     summary_lines = [
         "Logfile scan summary:",
         f"Uplinks (valid)={len(parsed)}",
@@ -2642,37 +3718,46 @@ def replay():
         format_list("DevAddr (hex)", devaddrs),
     ]
 
-    if scan_errors:
-        error_lines = summary_lines + [
-            f"Validation errors={len(scan_errors)} (replay aborted)."
-        ]
-        preview = scan_errors[:10]
-        error_lines.extend(preview)
-        if len(scan_errors) > len(preview):
-            error_lines.append(f"... (+{len(scan_errors) - len(preview)} more)")
-        return render_main_page(
-            error_lines,
-            "error",
-            form_values=request.form,
+    if request.method == "GET":
+        return render_replay_page(
+            scan_token=scan_token,
             selected_filename=selected_filename,
-            stored_logs=stored_logs,
-            selected_stored_id=selected_stored_id,
+            summary_lines=summary_lines,
+            summary_class="success",
+        )
+
+    host = request.form.get("host", "").strip() or "127.0.0.1"
+    port_raw = request.form.get("port", "1700").strip()
+
+    try:
+        port = int(port_raw)
+    except ValueError:
+        return render_replay_page(
+            form_values=request.form,
+            scan_token=scan_token,
+            selected_filename=selected_filename,
+            summary_lines=summary_lines,
+            summary_class="success",
+            result_lines=[f"Invalid UDP port: {port_raw}"],
+            result_class="error",
         )
 
     if not parsed:
-        return render_main_page(
-            summary_lines + ["No valid uplinks found."],
-            "error",
+        return render_replay_page(
             form_values=request.form,
+            scan_token=scan_token,
             selected_filename=selected_filename,
-            stored_logs=stored_logs,
-            selected_stored_id=selected_stored_id,
+            summary_lines=summary_lines,
+            summary_class="error",
+            result_lines=["No valid uplinks found."],
+            result_class="error",
         )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     total = 0
     errors = 0
+    log_lines = []
 
     for rec in parsed:
         gateway_eui = rec["gateway_eui"]
@@ -2745,20 +3830,20 @@ def replay():
 
     sock.close()
 
-    result = summary_lines + [
+    result_lines = [
         "Replay done.",
         f"Sent={total}, errors={errors}",
         f"Target={host}:{port}",
     ]
-    return render_main_page(
-        result,
-        "success",
-        log_lines=log_lines,
+    return render_replay_page(
         form_values=request.form,
         scan_token=scan_token,
         selected_filename=selected_filename,
-        stored_logs=stored_logs,
-        selected_stored_id=selected_stored_id,
+        summary_lines=summary_lines,
+        summary_class="success",
+        result_lines=result_lines,
+        result_class="success" if errors == 0 else "error",
+        log_lines=log_lines,
     )
 
 
@@ -2921,15 +4006,50 @@ def decode():
     )
 
 
-@app.route("/keys", methods=["GET", "POST"])
+@app.route("/devices", methods=["GET", "POST"])
 def device_keys():
     scan_token = request.form.get("scan_token") or request.args.get("scan_token", "")
     scan_token = scan_token.strip()
     credentials = load_credentials()
     summary_lines = []
     result_class = "success"
+    scan_summary_lines = []
+    scan_filename = ""
+
+    if request.args.get("show_scan") and scan_token:
+        cached = get_scan_result(scan_token)
+        if cached:
+            parsed, gateways, devaddrs, scan_filename, _stored_log_id = cached
+            scan_summary_lines = [
+                "Logfile scan summary:",
+                f"Uplinks (valid)={len(parsed)}",
+                format_list("Gateway EUI", gateways),
+                format_list("DevAddr (hex)", devaddrs),
+            ]
 
     action = request.form.get("action", "").strip()
+    if action == "delete_device":
+        devaddr = request.form.get("delete_devaddr", "").strip()
+        if not devaddr:
+            summary_lines = ["Select a device to remove."]
+            result_class = "error"
+        elif devaddr not in credentials:
+            summary_lines = [f"Device {devaddr} not found."]
+            result_class = "error"
+        else:
+            credentials.pop(devaddr, None)
+            save_credentials(credentials)
+            summary_lines = [f"Device {devaddr} removed."]
+            result_class = "success"
+        return render_device_keys_page(
+            credentials,
+            summary_lines=summary_lines,
+            result_class=result_class,
+            scan_token=scan_token,
+            scan_summary_lines=scan_summary_lines,
+            scan_filename=scan_filename,
+        )
+
     if action == "save_keys":
         updated = 0
         errors = []
@@ -3005,6 +4125,8 @@ def device_keys():
         summary_lines=summary_lines,
         result_class=result_class,
         scan_token=scan_token,
+        scan_summary_lines=scan_summary_lines,
+        scan_filename=scan_filename,
     )
 
 
