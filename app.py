@@ -13,7 +13,7 @@ import subprocess
 import html
 import threading
 import urllib.parse
-from flask import Flask, request, render_template_string, url_for, send_file, redirect, jsonify
+from flask import Flask, request, render_template_string, url_for, send_file, redirect, jsonify, session
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -28,6 +28,8 @@ import make_test_log
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+MAX_CONTENT_MB = int(os.environ.get("MAX_CONTENT_MB", "50"))
+app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_MB * 1024 * 1024
 login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
@@ -47,10 +49,47 @@ BUILTIN_DECODER_DIR = os.path.join(BASE_DIR, "decoders")
 CREDENTIALS_PATH = os.path.join(DATA_DIR, "credentials.json")
 UPLOAD_INDEX_PATH = os.path.join(DATA_DIR, "uploads.json")
 AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
+CSRF_SESSION_KEY = "_csrf_token"
 
 class AppUser(UserMixin):
     def __init__(self, user_id):
         self.id = user_id
+
+
+def get_csrf_token():
+    token = session.get(CSRF_SESSION_KEY)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session[CSRF_SESSION_KEY] = token
+    return token
+
+
+def get_csrf_input():
+    token = html.escape(get_csrf_token())
+    return f"<input type=\"hidden\" name=\"csrf_token\" value=\"{token}\">"
+
+
+def validate_csrf():
+    form_token = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token", "")
+    session_token = session.get(CSRF_SESSION_KEY, "")
+    if not form_token or not session_token:
+        return False
+    return secrets.compare_digest(form_token, session_token)
+
+
+@app.before_request
+def enforce_csrf():
+    if request.method != "POST":
+        return None
+    if request.endpoint == "static":
+        return None
+    if not validate_csrf():
+        return "Invalid CSRF token.", 400
+
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return "Upload too large.", 413
 
 
 def get_auth_config():
@@ -2241,6 +2280,7 @@ NAV_HTML = """
       {% if current_user.is_authenticated %}
       <span class="user-pill">Signed in as {{ current_user.id }}</span>
       <form method="POST" action="{{ logout_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="secondary-button">Log out</button>
       </form>
       {% endif %}
@@ -2287,6 +2327,7 @@ HTML = """
       <p class="subtitle">Upload a log file or pick a stored log file to scan and continue.</p>
 
       <form method="POST" action="{{ scan_url }}" enctype="multipart/form-data" data-scan-url="{{ scan_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div>
           <label for="logfile">Logfile</label>
           <div class="logfile-options">
@@ -2390,6 +2431,7 @@ REPLAY_HTML = """
       <div class="section-divider"></div>
 
       <form method="POST" action="{{ replay_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div>
           <label for="host">LoRaWAN server host</label>
           <input id="host" name="host" type="text" value="{{ form_values.host }}" {% if replay_token and replay_status == "running" %}disabled{% endif %}>
@@ -2597,6 +2639,7 @@ LOGIN_HTML = """
       {% endif %}
 
       <form method="POST" action="{{ login_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div>
           <label for="username">Username</label>
           <input id="username" name="username" type="text" autocomplete="username" required>
@@ -2649,6 +2692,7 @@ CHANGE_PASSWORD_HTML = """
       {% endif %}
 
       <form method="POST" action="{{ change_password_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div>
           <label for="current_password">Current password</label>
           <input id="current_password" name="current_password" type="password" autocomplete="current-password" required>
@@ -2743,8 +2787,9 @@ DECODE_HTML = """
         </div>
         <div class="hint">Add session keys for missing DevAddr entries so decoding can continue.</div>
         <div class="hint-divider" aria-hidden="true"></div>
-        {% for devaddr in missing_keys %}
+      {% for devaddr in missing_keys %}
         <form method="POST" action="{{ decode_url }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="scan_token" value="{{ scan_token }}">
           <input type="hidden" name="action" value="add_device">
           <input type="hidden" name="decoder_id" value="{{ selected_decoder }}">
@@ -2784,6 +2829,7 @@ DECODE_HTML = """
       {% endif %}
 
       <form method="POST" action="{{ decode_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         <input type="hidden" name="action" value="decode">
         <div>
@@ -2946,6 +2992,7 @@ DEVICE_KEYS_HTML = """
       {% endif %}
 
       <form method="POST" action="{{ keys_url }}" data-delete-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if scan_token %}
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         {% endif %}
@@ -2954,6 +3001,7 @@ DEVICE_KEYS_HTML = """
       </form>
 
       <form method="POST" action="{{ keys_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if scan_token %}
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         {% endif %}
@@ -3006,6 +3054,7 @@ DEVICE_KEYS_HTML = """
       <div class="section-divider"></div>
 
       <form method="POST" action="{{ keys_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if scan_token %}
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         {% endif %}
@@ -3088,6 +3137,7 @@ GENERATOR_HTML = """
       </div>
 
       <form method="POST" action="{{ generator_url }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="field-group">
           <div class="field-header">
             <label for="gateway_eui">Gateway EUI</label>
@@ -3986,6 +4036,7 @@ def resolve_decoder_path(decoder_id):
 
 
 def nav_context(active_page, logo_url):
+    csrf_token = get_csrf_token()
     context = {
         "active_page": active_page,
         "start_url": url_for("index"),
@@ -3997,6 +4048,7 @@ def nav_context(active_page, logo_url):
         "about_url": url_for("about_page"),
         "logout_url": url_for("logout"),
         "show_menu": current_user.is_authenticated,
+        "csrf_token": csrf_token,
     }
     nav_html = render_template_string(NAV_HTML, logo_url=logo_url, **context)
     return {**context, "nav_html": nav_html}
@@ -4324,6 +4376,7 @@ def users_page():
     summary_lines = []
     result_class = "success"
     action = request.form.get("action", "").strip()
+    csrf_input = get_csrf_input()
 
     if action == "add_user":
         username = request.form.get("new_username", "").strip()
@@ -4389,6 +4442,7 @@ def users_page():
             remove_html = (
                 f"<div class=\"remove-cell\">"
                 f"<form method=\"POST\" action=\"{url_for('users_page')}\">"
+                f"{csrf_input}"
                 f"<input type=\"hidden\" name=\"action\" value=\"delete_user\">"
                 f"<input type=\"hidden\" name=\"username\" value=\"{html.escape(username)}\">"
                 f"<button type=\"submit\" class=\"danger-button danger-text\">Remove</button>"
@@ -4436,6 +4490,7 @@ def users_page():
       </div>
       <div class=\"section-divider\"></div>
       <form method=\"POST\" action=\"{url_for('users_page')}\">
+        {csrf_input}
         <input type=\"hidden\" name=\"action\" value=\"add_user\">
         <div class=\"field-group\">
           <div class=\"field-header\">
@@ -4467,6 +4522,7 @@ def users_page():
           <h2>Change password</h2>
           <div class=\"hint\">Set a new password for <strong data-password-user></strong>.</div>
           <form method=\"POST\" action=\"{url_for('users_page')}\" data-password-form>
+            {csrf_input}
             <input type=\"hidden\" name=\"action\" value=\"update_user\">
             <input type=\"hidden\" name=\"username\" value=\"\" data-password-username>
             <div>
@@ -4512,6 +4568,7 @@ def keys_redirect():
 @login_required
 def files_page():
     stored_logs = list_stored_logs()
+    csrf_input = get_csrf_input()
     if stored_logs:
         items = []
         for log in stored_logs:
@@ -4546,6 +4603,7 @@ def files_page():
 
     body_html = f"""
       <form method="POST" action="{url_for('delete_log_file')}" data-file-delete-form>
+        {csrf_input}
         <input type="hidden" name="log_id" value="" data-file-delete-input>
       </form>
       <div class="field-group">
@@ -4561,6 +4619,7 @@ def files_page():
           <h3>Upload a log file</h3>
           <div class="hint">Upload a new JSONL log and scan it right away.</div>
           <form method="POST" action="{url_for('scan')}" enctype="multipart/form-data" data-scan-url="{url_for('scan')}">
+            {csrf_input}
             <input id="logfile" type="file" name="logfile" style="display: none;" aria-hidden="true">
             <input type="hidden" name="redirect_to" value="files">
             <div class="file-drop" data-file-drop>
@@ -4594,6 +4653,7 @@ def decoders_page():
     summary_lines = []
     result_class = "success"
     action = request.form.get("action", "").strip()
+    csrf_input = get_csrf_input()
     if request.method == "POST" and action == "upload_decoder":
         decoder_file = request.files.get("decoder_file")
         if not decoder_file or not decoder_file.filename:
@@ -4683,6 +4743,7 @@ def decoders_page():
     body_html = f"""
       {result_html}
       <form method="POST" action="{url_for('decoders_page')}" data-decoder-delete-form>
+        {csrf_input}
         <input type="hidden" name="action" value="delete_decoder">
         <input type="hidden" name="delete_decoder_id" value="" data-decoder-delete-input>
       </form>
@@ -4695,6 +4756,7 @@ def decoders_page():
       </div>
       <div class="section-divider"></div>
       <form method="POST" action="{url_for('decoders_page')}" enctype="multipart/form-data">
+        {csrf_input}
         <input type="hidden" name="action" value="upload_decoder">
         <div class="field-group">
           <div class="field-header">

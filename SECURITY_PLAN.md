@@ -63,11 +63,11 @@
 - Users management added (create users, change passwords, remove users).
 - Admin cannot be removed; only admin can reset the admin password.
 - Menu and pages now hide authenticated actions when logged out.
+- CSRF protection added for all POST forms.
+- Request size limits enforced via `MAX_CONTENT_LENGTH`.
 
 ## Next Up
-1) CSRF protection for every POST form.
-2) Upload/request size limits for logs and decoder files.
-3) Replay target allowlist and optional RFC1918-only restriction.
-4) Decoder execution sandboxing or curated decoder registry.
-5) Rate limits + per-user quotas.
-6) Audit logging for auth and file actions.
+1) Replay target allowlist and optional RFC1918-only restriction.
+2) Decoder execution sandboxing or curated decoder registry.
+3) Rate limits + per-user quotas.
+4) Audit logging for auth and file actions.
