@@ -5858,5 +5858,5 @@ def build_push_data(gateway_eui_hex: str, rxpk: dict) -> bytes:
 
 
 if __name__ == "__main__":
-    # Listen on all interfaces on port 8080
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    # Listen on all interfaces on port 18080
+    app.run(host="0.0.0.0", port=18080, debug=True)
