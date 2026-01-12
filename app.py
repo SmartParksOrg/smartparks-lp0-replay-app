@@ -13,7 +13,7 @@ import subprocess
 import html
 import threading
 import urllib.parse
-from flask import Flask, request, render_template_string, url_for, send_file, redirect, jsonify, session
+from flask import Flask, request, render_template_string, url_for, send_file, redirect, jsonify, session, has_request_context
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -45,6 +45,9 @@ DECODER_FILE_EXECUTION_ENABLED = env_flag("DECODER_FILE_EXECUTION_ENABLED", not 
 USER_MAX_LOGS = int(os.environ.get("USER_MAX_LOGS", "50"))
 USER_MAX_LOG_MB = int(os.environ.get("USER_MAX_LOG_MB", "200"))
 USER_MAX_LOG_BYTES = USER_MAX_LOG_MB * 1024 * 1024
+AUDIT_LOG_MAX_MB = int(os.environ.get("AUDIT_LOG_MAX_MB", "5"))
+AUDIT_LOG_MAX_BYTES = AUDIT_LOG_MAX_MB * 1024 * 1024
+AUDIT_LOG_BACKUPS = int(os.environ.get("AUDIT_LOG_BACKUPS", "5"))
 RATE_LIMIT_STATE = {}
 RATE_LIMITS = {
     "scan": (int(os.environ.get("RATE_LIMIT_SCAN_PER_MIN", "12")), 60),
@@ -72,6 +75,7 @@ BUILTIN_DECODER_DIR = os.path.join(BASE_DIR, "decoders")
 CREDENTIALS_PATH = os.path.join(DATA_DIR, "credentials.json")
 UPLOAD_INDEX_PATH = os.path.join(DATA_DIR, "uploads.json")
 AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
+AUDIT_LOG_PATH = os.path.join(DATA_DIR, "audit.log")
 CSRF_SESSION_KEY = "_csrf_token"
 
 class AppUser(UserMixin):
@@ -189,6 +193,42 @@ def enforce_user_log_quota_after_store(user_id, entry):
         delete_stored_log(entry["id"])
         return False, f"Storage quota exceeded (max {format_bytes(USER_MAX_LOG_BYTES)})."
     return True, ""
+
+
+def audit_log(event, details=None):
+    entry = {
+        "ts": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "event": event,
+        "user": get_user_id(),
+    }
+    if has_request_context():
+        entry["ip"] = request.headers.get("X-Forwarded-For", request.remote_addr)
+        entry["path"] = request.path
+        entry["method"] = request.method
+    if details:
+        entry["details"] = details
+    try:
+        ensure_data_dirs()
+        rotate_needed = False
+        if AUDIT_LOG_MAX_BYTES > 0 and os.path.exists(AUDIT_LOG_PATH):
+            try:
+                rotate_needed = os.path.getsize(AUDIT_LOG_PATH) >= AUDIT_LOG_MAX_BYTES
+            except OSError:
+                rotate_needed = False
+        if rotate_needed:
+            for idx in range(AUDIT_LOG_BACKUPS, 0, -1):
+                src = f"{AUDIT_LOG_PATH}.{idx}"
+                dst = f"{AUDIT_LOG_PATH}.{idx + 1}"
+                if os.path.exists(src):
+                    if idx >= AUDIT_LOG_BACKUPS:
+                        os.remove(src)
+                    else:
+                        os.replace(src, dst)
+            os.replace(AUDIT_LOG_PATH, f"{AUDIT_LOG_PATH}.1")
+        with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
+    except OSError:
+        pass
 
 
 def get_auth_config():
@@ -4421,17 +4461,20 @@ def login():
     if request.method == "POST":
         if not configured:
             error_message = "Authentication is not configured."
+            audit_log("login_failed", {"username": request.form.get("username", "").strip(), "reason": "not_configured"})
         else:
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
             if verify_credentials(username, password):
                 login_user(AppUser(username))
+                audit_log("login_success", {"username": username})
                 user_entry = config.get("users", {}).get(username, {})
                 if user_entry.get("must_change"):
                     return redirect(url_for("change_password"))
                 if is_safe_redirect(next_url):
                     return redirect(next_url)
                 return redirect(url_for("index"))
+            audit_log("login_failed", {"username": username, "reason": "invalid_credentials"})
             error_message = "Invalid username or password."
     logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
@@ -4465,6 +4508,7 @@ def change_password():
             error_message = "New passwords do not match."
         else:
             set_auth_password(current_user.id, new_password)
+            audit_log("password_changed", {"username": current_user.id})
             return redirect(url_for("index"))
     logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
@@ -4483,6 +4527,7 @@ def change_password():
 @app.route("/logout", methods=["POST"])
 @login_required
 def logout():
+    audit_log("logout", {"username": current_user.id})
     logout_user()
     return redirect(url_for("login"))
 
@@ -4512,6 +4557,7 @@ def users_page():
                 "created_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
             }
             save_users(users)
+            audit_log("user_created", {"username": username})
             summary_lines = [f"User {username} created."]
 
     if action == "update_user":
@@ -4530,6 +4576,7 @@ def users_page():
             users[username]["password_hash"] = generate_password_hash(new_password)
             users[username]["must_change"] = True
             save_users(users)
+            audit_log("user_password_reset", {"username": username})
             summary_lines = [f"Password reset for {username}."]
 
     if action == "delete_user":
@@ -4546,6 +4593,7 @@ def users_page():
         else:
             users.pop(username, None)
             save_users(users)
+            audit_log("user_deleted", {"username": username})
             summary_lines = [f"User {username} removed."]
 
     sorted_users = sorted(users.items(), key=lambda item: item[0].lower())
@@ -4795,10 +4843,11 @@ def decoders_page():
                         result_class = "error"
                     else:
                         ensure_data_dirs()
-                        path = os.path.join(DECODER_DIR, filename)
-                        decoder_file.save(path)
-                        summary_lines = [f"Decoder uploaded: {filename}"]
-                        result_class = "success"
+                    path = os.path.join(DECODER_DIR, filename)
+                    decoder_file.save(path)
+                    summary_lines = [f"Decoder uploaded: {filename}"]
+                    result_class = "success"
+                    audit_log("decoder_uploaded", {"filename": filename})
     if request.method == "POST" and action == "delete_decoder":
         if not uploads_enabled:
             summary_lines = ["Decoder management is disabled."]
@@ -4822,6 +4871,7 @@ def decoders_page():
                         os.remove(path)
                         summary_lines = ["Decoder removed."]
                         result_class = "success"
+                        audit_log("decoder_deleted", {"decoder_id": decoder_id})
                     else:
                         summary_lines = ["Decoder file not found."]
                         result_class = "error"
@@ -5027,6 +5077,7 @@ def view_log_file():
             active_page="files",
             page_title="Log File Viewer",
         )
+    audit_log("log_viewed", {"log_id": entry.get("id"), "filename": entry.get("filename")})
     path = entry["path"]
     max_bytes = 200000
     with open(path, "rb") as handle:
@@ -5065,6 +5116,7 @@ def download_log_file():
     entry = get_stored_log_entry(log_id) if log_id else None
     if not entry or not os.path.exists(entry["path"]):
         return "Log file not found.", 404
+    audit_log("log_downloaded", {"log_id": entry.get("id"), "filename": entry.get("filename")})
     return send_file(entry["path"], as_attachment=True, download_name=entry["filename"])
 
 
@@ -5073,7 +5125,9 @@ def download_log_file():
 def delete_log_file():
     log_id = request.form.get("log_id", "").strip()
     if log_id:
-        delete_stored_log(log_id)
+        removed = delete_stored_log(log_id)
+        if removed:
+            audit_log("log_deleted", {"log_id": log_id})
     return redirect(url_for("files_page"))
 
 
@@ -5092,6 +5146,7 @@ def start_decode_from_file():
             active_page="files",
             page_title="Files",
         )
+    audit_log("log_scanned", {"scan_token": scan_token, "log_id": log_id})
     return redirect(url_for("decode", scan_token=scan_token))
 
 
@@ -5110,6 +5165,7 @@ def start_replay_from_file():
             active_page="files",
             page_title="Files",
         )
+    audit_log("log_scanned", {"scan_token": scan_token, "log_id": log_id})
     return redirect(url_for("replay", scan_token=scan_token))
 
 
@@ -5251,6 +5307,7 @@ def start_scan_from_file():
             active_page="files",
             page_title="Files",
         )
+    audit_log("log_scanned", {"scan_token": scan_token, "log_id": log_id})
     return redirect(url_for("device_keys", scan_token=scan_token, show_scan="1"))
 
 
@@ -5318,6 +5375,10 @@ def scan():
                 selected_stored_id=selected_stored_id,
             )
         entry = store_uploaded_log(logfile, user_id)
+        audit_log(
+            "log_uploaded",
+            {"log_id": entry["id"], "filename": entry["filename"], "size": entry.get("size", 0)},
+        )
         ok, message = enforce_user_log_quota_after_store(user_id, entry)
         if not ok:
             return render_main_page(
@@ -5387,6 +5448,10 @@ def scan():
         )
 
     scan_token = store_scan_result(parsed, gateways, devaddrs, selected_filename, selected_stored_id)
+    audit_log(
+        "log_scanned",
+        {"scan_token": scan_token, "log_id": selected_stored_id, "filename": selected_filename},
+    )
     return render_main_page(
         summary_lines + ["Scan complete. Ready to replay or decrypt."],
         "success",
@@ -5436,6 +5501,7 @@ def replay_stop():
     if token:
         entry = get_replay_job(token)
         if entry and entry.get("status") == "running":
+            audit_log("replay_stopped", {"replay_token": token, "scan_token": scan_token})
             send_time_ms = int(time.time() * 1000)
             append_replay_log(
                 token,
@@ -5492,6 +5558,7 @@ def replay_resume():
         daemon=True,
     )
     thread.start()
+    audit_log("replay_resumed", {"replay_token": job_token, "scan_token": scan_token})
     return redirect(url_for("replay", scan_token=scan_token, replay_token=job_token))
 
 
@@ -5619,6 +5686,10 @@ def replay():
         )
 
     job_token = store_replay_job(len(parsed), host, port, delay_ms)
+    audit_log(
+        "replay_started",
+        {"replay_token": job_token, "scan_token": scan_token, "host": host, "port": port, "delay_ms": delay_ms},
+    )
     thread = threading.Thread(
         target=run_replay_job,
         args=(job_token, parsed, host, port, delay_ms, 0, 0, 0),
@@ -5764,6 +5835,7 @@ def decode():
                         summary_lines = [f"Decoder uploaded: {filename}"]
                         result_class = "success"
                         decoders = list_decoders()
+                        audit_log("decoder_uploaded", {"filename": filename})
 
     if action == "decode":
         allowed, retry_after = check_rate_limit("decode", user_id)
@@ -5852,6 +5924,15 @@ def decode():
                     f"Decoded={ok}, errors={errors}",
                 ]
                 result_class = "success" if errors == 0 else "error"
+                audit_log(
+                    "decode_completed",
+                    {
+                        "scan_token": scan_token,
+                        "decoder_id": selected_decoder,
+                        "decoded": ok,
+                        "errors": errors,
+                    },
+                )
 
     return render_decode_page(
         scan_token=scan_token,
@@ -5906,6 +5987,7 @@ def device_keys():
             save_credentials(credentials)
             summary_lines = [f"Device {devaddr} removed."]
             result_class = "success"
+            audit_log("device_removed", {"devaddr": devaddr})
         return render_device_keys_page(
             credentials,
             summary_lines=summary_lines,
@@ -5943,6 +6025,7 @@ def device_keys():
             result_class = "error"
         else:
             summary_lines = [f"Updated {updated} device(s)."]
+            audit_log("device_keys_updated", {"updated": updated})
         save_credentials(credentials)
 
     if action == "add_device":
@@ -5986,6 +6069,7 @@ def device_keys():
                     save_credentials(credentials)
                     summary_lines = [f"Device {devaddr} saved."]
                     result_class = "success"
+                    audit_log("device_added", {"devaddr": devaddr})
 
     return render_device_keys_page(
         credentials,
@@ -6079,6 +6163,10 @@ def generate_log_page():
     ok, message = enforce_user_log_quota_after_store(user_id, entry)
     if not ok:
         return render_generator_page(form_values=form_values, error_message=message)
+    audit_log(
+        "log_generated",
+        {"log_id": entry["id"], "filename": entry["filename"], "size": entry.get("size", 0)},
+    )
     scan_token = ""
     scan_error = ""
     try:

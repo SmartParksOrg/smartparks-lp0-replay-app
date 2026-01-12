@@ -67,7 +67,8 @@
 - Request size limits enforced via `MAX_CONTENT_LENGTH`.
 - Uploaded decoders gated by public-mode flags; uploads/execution can be disabled by default.
 - Rate limits and per-user storage quotas enforced for scan/replay/decode/generate and uploads.
+- Audit logging added for auth events and file/decoder/replay/decode actions (with rotation).
 
 ## Next Up
 1) Replay target allowlist and optional RFC1918-only restriction.
-2) Audit logging for auth and file actions.
+2) Production hardening (disable debug, proxy, backups).
