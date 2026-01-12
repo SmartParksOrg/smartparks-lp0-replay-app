@@ -11,7 +11,8 @@ import io
 import csv
 import subprocess
 import html
-from flask import Flask, request, render_template_string, url_for, send_file, redirect
+import threading
+from flask import Flask, request, render_template_string, url_for, send_file, redirect, jsonify
 from werkzeug.utils import secure_filename
 import make_test_log
 
@@ -20,6 +21,9 @@ SCAN_CACHE = {}
 SCAN_CACHE_TTL = 30 * 60
 DECODE_CACHE = {}
 DECODE_CACHE_TTL = 30 * 60
+REPLAY_CACHE = {}
+REPLAY_CACHE_TTL = 30 * 60
+REPLAY_LOCK = threading.Lock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -788,6 +792,16 @@ STYLE_BLOCK = """
       color: #7f1d1d;
     }
 
+    .result.info {
+      background: #eff6ff;
+      border: 1px solid #93c5fd;
+      color: #1e3a8a;
+    }
+
+    .replay-status {
+      margin-top: 1rem;
+    }
+
     .log-wrapper {
       width: 100%;
     }
@@ -1145,6 +1159,33 @@ STYLE_BLOCK = """
       0% { transform: translateX(-60%); }
       100% { transform: translateX(160%); }
     }
+
+    .progress-track {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow: hidden;
+      margin-top: 0.5rem;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+      width: 0%;
+      transition: width 0.2s ease-out;
+    }
+
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.9rem;
+      color: #475569;
+      margin-top: 0.5rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
   </style>
 """
 
@@ -1343,12 +1384,172 @@ SCRIPT_BLOCK = """
       });
     }
 
+    function formatTimeParts(value, length) {
+      return String(value).padStart(length, "0");
+    }
+
+    function formatSendTime(msValue) {
+      if (msValue === undefined || msValue === null || msValue === "") {
+        return "-";
+      }
+      const msNumber = Number(msValue);
+      if (!Number.isFinite(msNumber)) {
+        return "-";
+      }
+      const date = new Date(msNumber);
+      if (Number.isNaN(date.getTime())) {
+        return "-";
+      }
+      return (
+        `${formatTimeParts(date.getHours(), 2)}:` +
+        `${formatTimeParts(date.getMinutes(), 2)}:` +
+        `${formatTimeParts(date.getSeconds(), 2)}.` +
+        `${formatTimeParts(date.getMilliseconds(), 3)}`
+      );
+    }
+
+    function formatReplaySendTimes(section) {
+      if (!section) return;
+      section.querySelectorAll("tr[data-send-time-ms]").forEach((row) => {
+        const cell = row.querySelector(".send-time-cell");
+        if (!cell) return;
+        cell.textContent = formatSendTime(row.dataset.sendTimeMs || "");
+      });
+    }
+
+    function initReplayStream() {
+      const container = document.querySelector("[data-replay-stream]");
+      if (!container) return;
+      const token = container.dataset.replayToken || "";
+      const statusUrl = container.dataset.replayStatusUrl || "";
+      if (!token || !statusUrl) return;
+
+      const statusBlock = container.querySelector("[data-replay-status]");
+      const progressFill = container.querySelector("[data-replay-progress]");
+      const progressText = container.querySelector("[data-replay-progress-text]");
+      const metaTarget = container.querySelector("[data-replay-target]");
+      const logBody = document.querySelector("[data-replay-log-body]");
+
+      let received = 0;
+      let done = false;
+
+      const updateStatus = (data) => {
+        const total = data.total || 0;
+        const sent = data.sent || 0;
+        const errors = data.errors || 0;
+        const processed = sent + errors;
+        const percent = total ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+
+        if (progressFill) {
+          progressFill.style.width = `${percent}%`;
+        }
+        if (progressText) {
+          progressText.textContent = `Sent ${sent} of ${total} · Errors ${errors}`;
+        }
+        if (metaTarget) {
+          metaTarget.textContent = `Target ${data.host || "?"}:${data.port || "?"} · Delay ${data.delay_ms || 0} ms`;
+        }
+        if (statusBlock) {
+          statusBlock.classList.remove("info", "success", "error");
+          if (data.status === "done") {
+            statusBlock.classList.add(errors === 0 ? "success" : "error");
+            statusBlock.textContent = `Replay done. Sent ${sent}, errors ${errors}.`;
+          } else {
+            statusBlock.classList.add("info");
+            statusBlock.textContent = `Replaying... Sent ${sent} of ${total}.`;
+          }
+        }
+      };
+
+      const appendLines = (lines) => {
+        if (!logBody || !Array.isArray(lines) || lines.length === 0) return;
+        const fragment = document.createDocumentFragment();
+        lines.forEach((line) => {
+          const row = document.createElement("tr");
+          row.className = line.css || "";
+          row.dataset.index = line.index ?? "";
+          row.dataset.status = line.status ?? "";
+          row.dataset.sendTimeMs = line.send_time_ms ?? "";
+          row.dataset.gateway = line.gateway ?? "";
+          row.dataset.fcnt = line.fcnt ?? "";
+          row.dataset.freq = line.freq ?? "";
+          row.dataset.size = line.size ?? "";
+          row.dataset.message = line.message ?? "";
+
+          const cells = [
+            { value: line.index },
+            { value: line.status },
+            { value: formatSendTime(line.send_time_ms), className: "send-time-cell" },
+            { value: line.gateway },
+            { value: line.fcnt },
+            { value: line.freq },
+            { value: line.size },
+            { value: line.message },
+          ];
+          cells.forEach((cellData) => {
+            const cell = document.createElement("td");
+            if (cellData.className) {
+              cell.className = cellData.className;
+            }
+            const value = cellData.value;
+            cell.textContent = value === undefined || value === null || value === "" ? "-" : value;
+            row.appendChild(cell);
+          });
+          fragment.appendChild(row);
+        });
+        logBody.appendChild(fragment);
+      };
+
+      const poll = () => {
+        if (done) return;
+        const url = new URL(statusUrl, window.location.origin);
+        url.searchParams.set("token", token);
+        url.searchParams.set("since", String(received));
+        fetch(url.toString(), { cache: "no-store" })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error("Replay status request failed.");
+            }
+            return response.json();
+          })
+          .then((data) => {
+            if (data.error) {
+              throw new Error(data.error);
+            }
+            if (Array.isArray(data.lines)) {
+              appendLines(data.lines);
+            }
+            if (typeof data.count === "number") {
+              received = data.count;
+            }
+            updateStatus(data);
+            if (data.status === "done") {
+              done = true;
+              return;
+            }
+            window.setTimeout(poll, 600);
+          })
+          .catch(() => {
+            if (!done) {
+              window.setTimeout(poll, 1200);
+            }
+          });
+      };
+
+      poll();
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
-      initSortableTable(document.querySelector("[data-log-section]"));
+      const logSection = document.querySelector("[data-log-section]");
+      formatReplaySendTimes(logSection);
+      if (logSection && !logSection.dataset.liveReplay) {
+        initSortableTable(logSection);
+        initTruncation(logSection);
+      }
       initSortableTable(document.querySelector("[data-decode-section]"));
-      initTruncation(document.querySelector("[data-log-section]"));
       initTruncation(document.querySelector("[data-decode-section]"));
       initDetailOverlay(document.querySelector("[data-decode-section]"));
+      initReplayStream();
       document.querySelectorAll("[data-toggle-visibility]").forEach((button) => {
         button.addEventListener("click", () => {
           const targetId = button.dataset.toggleVisibility;
@@ -1660,12 +1861,6 @@ HTML = """
     </p>
 
   </div>
-  <div class="loading-overlay" data-loading-overlay hidden>
-    <div class="loading-card">
-      <div class="spinner" aria-hidden="true"></div>
-      <div>Replaying uplinks…</div>
-    </div>
-  </div>
   {{ script_block|safe }}
 </body>
 </html>
@@ -1730,15 +1925,29 @@ REPLAY_HTML = """
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         {% endif %}
         <div class="form-actions">
-          <button type="submit" {% if not scan_token %}disabled{% endif %} data-show-loader="true">Replay</button>
+          <button type="submit" {% if not scan_token %}disabled{% endif %}>Replay</button>
         </div>
       </form>
+
+      {% if replay_token %}
+      <div data-replay-stream data-replay-token="{{ replay_token }}" data-replay-status-url="{{ replay_status_url }}">
+        <div class="result info replay-status" data-replay-status>Starting replay…</div>
+        <div class="progress-track" aria-hidden="true">
+          <div class="progress-fill" data-replay-progress></div>
+        </div>
+        <div class="progress-meta">
+          <span data-replay-progress-text>Sent 0 of {{ replay_total }}</span>
+          <span data-replay-target>Target -</span>
+        </div>
+      </div>
+      {% endif %}
     </div>
 
-    {% if log_lines %}
-    <div class="log-wrapper" data-log-section>
+    {% if log_lines or replay_token %}
+    <div class="log-wrapper" data-log-section {% if replay_token %}data-live-replay="true"{% endif %}>
       <details class="log-block" open>
         <summary>Replay log</summary>
+        {% if not replay_token %}
         <div class="log-controls">
           <label>
             Rows to display:
@@ -1750,24 +1959,38 @@ REPLAY_HTML = """
             </select>
           </label>
         </div>
+        {% endif %}
         <div style="overflow-x: auto;">
-          <table class="log-table" data-sortable-table data-numeric-keys="index,fcnt,freq,size">
+          <table class="log-table" {% if not replay_token %}data-sortable-table data-numeric-keys="index,sendTimeMs,fcnt,freq,size"{% endif %}>
             <thead>
               <tr>
+                {% if replay_token %}
+                <th>#</th>
+                <th>Status</th>
+                <th>Sent at</th>
+                <th>Gateway EUI</th>
+                <th>FCnt</th>
+                <th>Frequency</th>
+                <th>Size</th>
+                <th>Message</th>
+                {% else %}
                 <th><button type="button" data-sort-key="index">#</button></th>
                 <th><button type="button" data-sort-key="status">Status</button></th>
+                <th><button type="button" data-sort-key="sendTimeMs">Sent at</button></th>
                 <th><button type="button" data-sort-key="gateway">Gateway EUI</button></th>
                 <th><button type="button" data-sort-key="fcnt">FCnt</button></th>
                 <th><button type="button" data-sort-key="freq">Frequency</button></th>
                 <th><button type="button" data-sort-key="size">Size</button></th>
                 <th><button type="button" data-sort-key="message">Message</button></th>
+                {% endif %}
               </tr>
             </thead>
-            <tbody>
+            <tbody data-replay-log-body>
               {% for log_line in log_lines %}
               <tr class="{{ log_line.css }}"
                   data-index="{{ log_line.index }}"
                   data-status="{{ log_line.status }}"
+                  data-send-time-ms="{{ log_line.send_time_ms or '' }}"
                   data-gateway="{{ log_line.gateway or '' }}"
                   data-fcnt="{{ log_line.fcnt or '' }}"
                   data-freq="{{ log_line.freq or '' }}"
@@ -1775,6 +1998,7 @@ REPLAY_HTML = """
                   data-message="{{ (log_line.message or '') | e }}">
                 <td>{{ log_line.index }}</td>
                 <td>{{ log_line.status }}</td>
+                <td class="send-time-cell">-</td>
                 <td>{{ log_line.gateway or "-" }}</td>
                 <td>{{ log_line.fcnt or "-" }}</td>
                 <td>{{ log_line.freq or "-" }}</td>
@@ -2832,6 +3056,61 @@ def prune_decode_cache(now=None):
         del DECODE_CACHE[token]
 
 
+def prune_replay_cache(now=None):
+    if not REPLAY_CACHE:
+        return
+    now = time.time() if now is None else now
+    expired = [token for token, entry in REPLAY_CACHE.items() if now - entry["ts"] > REPLAY_CACHE_TTL]
+    for token in expired:
+        del REPLAY_CACHE[token]
+
+
+def store_replay_job(total, host, port, delay_ms):
+    prune_replay_cache()
+    token = secrets.token_urlsafe(16)
+    REPLAY_CACHE[token] = {
+        "ts": time.time(),
+        "status": "running",
+        "total": total,
+        "sent": 0,
+        "errors": 0,
+        "host": host,
+        "port": port,
+        "delay_ms": delay_ms,
+        "log_lines": [],
+    }
+    return token
+
+
+def get_replay_job(token):
+    prune_replay_cache()
+    return REPLAY_CACHE.get(token)
+
+
+def update_replay_job(token, **updates):
+    with REPLAY_LOCK:
+        entry = REPLAY_CACHE.get(token)
+        if not entry:
+            return
+        entry.update(updates)
+        entry["ts"] = time.time()
+
+
+def append_replay_log(token, log_line, sent=None, errors=None, status=None):
+    with REPLAY_LOCK:
+        entry = REPLAY_CACHE.get(token)
+        if not entry:
+            return
+        entry["log_lines"].append(log_line)
+        if sent is not None:
+            entry["sent"] = sent
+        if errors is not None:
+            entry["errors"] = errors
+        if status is not None:
+            entry["status"] = status
+        entry["ts"] = time.time()
+
+
 def store_scan_result(parsed, gateways, devaddrs, filename, stored_log_id=""):
     prune_scan_cache()
     token = secrets.token_urlsafe(16)
@@ -3055,6 +3334,8 @@ def render_replay_page(
     result_lines=None,
     result_class="",
     log_lines=None,
+    replay_token="",
+    replay_total=0,
 ):
     values = {
         "host": "127.0.0.1",
@@ -3073,6 +3354,7 @@ def render_replay_page(
         logo_url=logo_url,
         favicon_url=url_for("static", filename="favicon.ico"),
         replay_url=url_for("replay"),
+        replay_status_url=url_for("replay_status"),
         form_values=values,
         scan_token=scan_token,
         selected_filename=selected_filename,
@@ -3081,6 +3363,8 @@ def render_replay_page(
         result_lines=result_lines or [],
         result_class=result_class,
         log_lines=log_lines or [],
+        replay_token=replay_token,
+        replay_total=replay_total,
         **nav_context("start", logo_url),
     )
 
@@ -3580,6 +3864,122 @@ def start_replay_from_file():
     return redirect(url_for("replay", scan_token=scan_token))
 
 
+def run_replay_job(token, parsed, host, port, delay_ms):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sent = 0
+    errors = 0
+    total = len(parsed)
+
+    try:
+        for idx, rec in enumerate(parsed, start=1):
+            gateway_eui = rec["gateway_eui"]
+            rxpk = rec["rxpk"]
+            send_attempted = False
+
+            try:
+                packet = build_push_data(gateway_eui, rxpk)
+            except Exception as exc:
+                errors += 1
+                try:
+                    rxpk_serialized = json.dumps(rxpk)
+                except Exception:
+                    rxpk_serialized = str(rxpk) if rxpk is not None else ""
+                rxpk_preview = rxpk_serialized[:100] + "..." if len(rxpk_serialized) > 100 else rxpk_serialized
+                try:
+                    fcnt = parse_uplink(rxpk)["fcnt"]
+                except Exception:
+                    fcnt = ""
+                append_replay_log(
+                    token,
+                    {
+                        "index": idx,
+                        "status": "Error",
+                        "send_time_ms": "",
+                        "gateway": gateway_eui,
+                        "fcnt": fcnt,
+                        "freq": rxpk.get("freq"),
+                        "size": rxpk.get("size"),
+                        "message": f"Build error: {exc} -- {rxpk_preview}",
+                        "css": "err",
+                    },
+                    sent=sent,
+                    errors=errors,
+                )
+                continue
+
+            try:
+                sock.sendto(packet, (host, port))
+                send_attempted = True
+                sent += 1
+                send_time_ms = int(time.time() * 1000)
+                try:
+                    fcnt = parse_uplink(rxpk)["fcnt"]
+                except Exception:
+                    fcnt = ""
+                freq = rxpk.get("freq", "?")
+                size = rxpk.get("size", len(packet))
+                datr = rxpk.get("datr", "?")
+                rssi = rxpk.get("rssi", "?")
+                lsnr = rxpk.get("lsnr", "?")
+                time_str = rxpk.get("time", "?")
+                payload = rxpk.get("data", "")
+                payload_preview = (payload[:60] + "...") if payload and len(payload) > 60 else payload or "n/a"
+                append_replay_log(
+                    token,
+                    {
+                        "index": idx,
+                        "status": "Sent",
+                        "send_time_ms": send_time_ms,
+                        "gateway": gateway_eui,
+                        "fcnt": fcnt,
+                        "freq": freq,
+                        "size": size,
+                        "message": (
+                            f"{time_str} datr={datr}, rssi={rssi} dBm, lsnr={lsnr} dB, "
+                            f"data={payload_preview}"
+                        ),
+                        "css": "ok",
+                    },
+                    sent=sent,
+                    errors=errors,
+                )
+            except Exception as exc:
+                send_attempted = True
+                errors += 1
+                send_time_ms = int(time.time() * 1000)
+                try:
+                    rxpk_serialized = json.dumps(rxpk)
+                except Exception:
+                    rxpk_serialized = str(rxpk) if rxpk is not None else ""
+                rxpk_preview = rxpk_serialized[:100] + "..." if len(rxpk_serialized) > 100 else rxpk_serialized
+                try:
+                    fcnt = parse_uplink(rxpk)["fcnt"]
+                except Exception:
+                    fcnt = ""
+                append_replay_log(
+                    token,
+                    {
+                        "index": idx,
+                        "status": "Error",
+                        "send_time_ms": send_time_ms,
+                        "gateway": gateway_eui,
+                        "fcnt": fcnt,
+                        "freq": rxpk.get("freq"),
+                        "size": rxpk.get("size"),
+                        "message": f"Send error: {exc} -- {rxpk_preview}",
+                        "css": "err",
+                    },
+                    sent=sent,
+                    errors=errors,
+                )
+
+            if send_attempted and delay_ms > 0 and idx < total:
+                time.sleep(delay_ms / 1000.0)
+    finally:
+        sock.close()
+        update_replay_job(token, status="done", sent=sent, errors=errors)
+
+
 @app.route("/files/scan", methods=["GET"])
 def start_scan_from_file():
     log_id = request.args.get("log_id", "").strip()
@@ -3705,6 +4105,35 @@ def scan():
     )
 
 
+@app.route("/replay/status", methods=["GET"])
+def replay_status():
+    token = request.args.get("token", "").strip()
+    if not token:
+        return jsonify({"error": "missing_token"}), 400
+    entry = get_replay_job(token)
+    if not entry:
+        return jsonify({"error": "not_found"}), 404
+    since_raw = request.args.get("since", "0").strip()
+    try:
+        since = int(since_raw)
+    except ValueError:
+        since = 0
+    with REPLAY_LOCK:
+        lines = entry["log_lines"][since:]
+        payload = {
+            "status": entry["status"],
+            "total": entry["total"],
+            "sent": entry["sent"],
+            "errors": entry["errors"],
+            "host": entry["host"],
+            "port": entry["port"],
+            "delay_ms": entry["delay_ms"],
+            "lines": lines,
+            "count": len(entry["log_lines"]),
+        }
+    return jsonify(payload)
+
+
 @app.route("/replay", methods=["GET", "POST"])
 def replay():
     scan_token = (request.values.get("scan_token") or "").strip()
@@ -3730,12 +4159,34 @@ def replay():
         format_list("DevAddr (hex)", devaddrs),
     ]
 
+    replay_token = request.args.get("replay_token", "").strip()
+    replay_job = get_replay_job(replay_token) if replay_token else None
+
     if request.method == "GET":
+        form_values = None
+        replay_total = 0
+        result_lines = None
+        result_class = ""
+        if replay_token and replay_job:
+            form_values = {
+                "host": replay_job.get("host", "127.0.0.1"),
+                "port": str(replay_job.get("port", "1700")),
+                "delay_ms": str(replay_job.get("delay_ms", "500")),
+            }
+            replay_total = replay_job.get("total", 0)
+        elif replay_token and not replay_job:
+            result_lines = ["Replay job not found or expired."]
+            result_class = "error"
         return render_replay_page(
+            form_values=form_values,
             scan_token=scan_token,
             selected_filename=selected_filename,
             summary_lines=summary_lines,
             summary_class="success",
+            result_lines=result_lines,
+            result_class=result_class,
+            replay_token=replay_token if replay_job else "",
+            replay_total=replay_total,
         )
 
     host = request.form.get("host", "").strip() or "127.0.0.1"
@@ -3781,120 +4232,14 @@ def replay():
             result_class="error",
         )
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    total = 0
-    errors = 0
-    log_lines = []
-
-    for idx, rec in enumerate(parsed):
-        gateway_eui = rec["gateway_eui"]
-        rxpk = rec["rxpk"]
-
-        try:
-            packet = build_push_data(gateway_eui, rxpk)
-        except Exception as e:
-            errors += 1
-            print("Build packet error:", e, "rec:", rec)
-            try:
-                rxpk_serialized = json.dumps(rxpk)
-            except Exception:
-                rxpk_serialized = str(rxpk) if rxpk is not None else ""
-            rxpk_preview = rxpk_serialized[:100] + "..." if len(rxpk_serialized) > 100 else rxpk_serialized
-            try:
-                fcnt = parse_uplink(rxpk)["fcnt"]
-            except Exception:
-                fcnt = ""
-            log_lines.append(
-                {
-                    "index": total + errors,
-                    "status": "Error",
-                    "gateway": gateway_eui,
-                    "fcnt": fcnt,
-                    "freq": rxpk.get("freq"),
-                    "size": rxpk.get("size"),
-                    "message": f"Build error: {e} -- {rxpk_preview}",
-                    "css": "err",
-                }
-            )
-            continue
-
-        send_attempted = False
-        try:
-            sock.sendto(packet, (host, port))
-            send_attempted = True
-            total += 1
-            try:
-                fcnt = parse_uplink(rxpk)["fcnt"]
-            except Exception:
-                fcnt = ""
-            freq = rxpk.get("freq", "?")
-            size = rxpk.get("size", len(packet))
-            datr = rxpk.get("datr", "?")
-            rssi = rxpk.get("rssi", "?")
-            lsnr = rxpk.get("lsnr", "?")
-            time_str = rxpk.get("time", "?")
-            payload = rxpk.get("data", "")
-            payload_preview = (payload[:60] + "...") if payload and len(payload) > 60 else payload or "n/a"
-            log_lines.append(
-                {
-                    "index": total + errors,
-                    "status": "Sent",
-                    "gateway": gateway_eui,
-                    "fcnt": fcnt,
-                    "freq": freq,
-                    "size": size,
-                    "message": f"{time_str} datr={datr}, rssi={rssi} dBm, lsnr={lsnr} dB, data={payload_preview}",
-                    "css": "ok",
-                }
-            )
-        except Exception as e:
-            send_attempted = True
-            errors += 1
-            print("Send error:", e)
-            try:
-                rxpk_serialized = json.dumps(rxpk)
-            except Exception:
-                rxpk_serialized = str(rxpk) if rxpk is not None else ""
-            rxpk_preview = rxpk_serialized[:100] + "..." if len(rxpk_serialized) > 100 else rxpk_serialized
-            try:
-                fcnt = parse_uplink(rxpk)["fcnt"]
-            except Exception:
-                fcnt = ""
-            log_lines.append(
-                {
-                    "index": total + errors,
-                    "status": "Error",
-                    "gateway": gateway_eui,
-                    "fcnt": fcnt,
-                    "freq": rxpk.get("freq"),
-                    "size": rxpk.get("size"),
-                    "message": f"Send error: {e} -- {rxpk_preview}",
-                    "css": "err",
-                }
-            )
-
-        if send_attempted and delay_ms > 0 and idx < len(parsed) - 1:
-            time.sleep(delay_ms / 1000.0)
-
-    sock.close()
-
-    result_lines = [
-        "Replay done.",
-        f"Sent={total}, errors={errors}",
-        f"Target={host}:{port}",
-        f"Delay={delay_ms} ms",
-    ]
-    return render_replay_page(
-        form_values=request.form,
-        scan_token=scan_token,
-        selected_filename=selected_filename,
-        summary_lines=summary_lines,
-        summary_class="success",
-        result_lines=result_lines,
-        result_class="success" if errors == 0 else "error",
-        log_lines=log_lines,
+    job_token = store_replay_job(len(parsed), host, port, delay_ms)
+    thread = threading.Thread(
+        target=run_replay_job,
+        args=(job_token, parsed, host, port, delay_ms),
+        daemon=True,
     )
+    thread.start()
+    return redirect(url_for("replay", scan_token=scan_token, replay_token=job_token))
 
 
 def get_missing_keys(devaddrs, credentials):
