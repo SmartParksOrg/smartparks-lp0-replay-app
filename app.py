@@ -1096,9 +1096,27 @@ STYLE_BLOCK = """
       gap: 0.85rem;
     }
 
+    .key-grid.add-device-grid {
+      grid-template-columns: minmax(140px, 0.6fr) minmax(200px, 1fr) minmax(280px, 1.7fr) minmax(280px, 1.7fr);
+      align-items: end;
+    }
+
     .key-grid.device-grid {
       grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(200px, 1fr) 52px;
       align-items: end;
+    }
+
+    .missing-keys-block {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 1rem 1.2rem;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+    }
+
+    .hint-divider {
+      margin: 0.6rem 0 0.9rem;
+      border-top: 1px dashed #cbd5f5;
     }
 
     .remove-cell {
@@ -1109,6 +1127,10 @@ STYLE_BLOCK = """
     }
 
     @media (max-width: 900px) {
+      .key-grid.add-device-grid {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
       .key-grid.device-grid {
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       }
@@ -1857,7 +1879,7 @@ NAV_HTML = """
     <div class="brand">
       <img src="{{ logo_url }}" alt="Smart Parks logo">
       <div>
-        <div class="brand-title">LoRaWAN Log Replay</div>
+        <div class="brand-title">OpenCollar LP0 Replay tool</div>
         <div class="brand-subtitle">Smart Parks</div>
       </div>
     </div>
@@ -1885,7 +1907,7 @@ HTML = """
 <html>
 <head>
   <meta charset="utf-8">
-  <title>LoRaWAN Log Replay</title>
+  <title>OpenCollar LP0 Replay tool</title>
   <link rel="icon" type="image/x-icon" href="{{ favicon_url }}">
   {{ style_block|safe }}
 </head>
@@ -2230,18 +2252,62 @@ DECODE_HTML = """
               </label>
             </div>
             <div class="hint">Session keys stored: {% if devaddr in missing_keys %}no{% else %}yes{% endif %}</div>
-            <a class="inline-action" href="{{ keys_url }}?scan_token={{ scan_token }}&devaddr={{ devaddr }}">
-              <span>Edit keys</span>
-            </a>
           </div>
           {% endfor %}
         </div>
         <div class="form-actions">
-          <a class="secondary-button" href="{{ keys_url }}?scan_token={{ scan_token }}">Manage device session keys</a>
+          <a class="secondary-button" href="{{ keys_url }}?scan_token={{ scan_token }}">Manage Devices</a>
         </div>
       </div>
 
+      {% if missing_keys %}
       <div class="section-divider"></div>
+
+      <div class="field-group missing-keys-block">
+        <div class="field-header">
+          <label>Add missing devices</label>
+        </div>
+        <div class="hint">Add session keys for missing DevAddr entries so decoding can continue.</div>
+        <div class="hint-divider" aria-hidden="true"></div>
+        {% for devaddr in missing_keys %}
+        <form method="POST" action="{{ decode_url }}">
+          <input type="hidden" name="scan_token" value="{{ scan_token }}">
+          <input type="hidden" name="action" value="add_device">
+          <input type="hidden" name="decoder_id" value="{{ selected_decoder }}">
+          <div class="field-group">
+            <div class="field-header">
+              <label>DevAddr {{ devaddr }}</label>
+            </div>
+            <div class="key-grid add-device-grid">
+              <div>
+                <label for="new_devaddr_{{ devaddr }}">DevAddr (hex)</label>
+                <input id="new_devaddr_{{ devaddr }}" name="new_devaddr" type="text" value="{{ devaddr }}" readonly>
+              </div>
+              <div>
+                <label for="new_name_{{ devaddr }}">Device name (optional)</label>
+                <input id="new_name_{{ devaddr }}" name="new_name" type="text" placeholder="Wildlife collar 17">
+              </div>
+              <div>
+                <label for="new_nwk_{{ devaddr }}">NwkSKey (hex)</label>
+                <input id="new_nwk_{{ devaddr }}" name="new_nwk" type="password" placeholder="000102030405060708090A0B0C0D0E0F" pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" title="32 hex characters" autocomplete="off" spellcheck="false">
+              </div>
+              <div>
+                <label for="new_app_{{ devaddr }}">AppSKey (hex)</label>
+                <input id="new_app_{{ devaddr }}" name="new_app" type="password" placeholder="F0E0D0C0B0A090807060504030201000" pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" title="32 hex characters" autocomplete="off" spellcheck="false">
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit">Add device</button>
+            </div>
+          </div>
+        </form>
+        {% endfor %}
+      </div>
+
+      <div class="section-divider"></div>
+      {% else %}
+      <div class="section-divider"></div>
+      {% endif %}
 
       <form method="POST" action="{{ decode_url }}">
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
@@ -2254,10 +2320,12 @@ DECODE_HTML = """
             {% endfor %}
           </select>
           <div class="hint">Select the decoder and press Decode to process all decrypted payloads.</div>
+          <div class="form-actions">
+            <a class="secondary-button" href="{{ decoders_url }}">Manage Decoders</a>
+          </div>
         </div>
         <div class="form-actions">
-          <button type="submit" {% if missing_keys %}disabled{% endif %} data-show-decode-loader="true">Decode</button>
-          <a class="secondary-button" href="{{ decoders_url }}">Manage decoders</a>
+          <button type="submit" class="start-replay-button" {% if missing_keys %}disabled{% endif %} data-show-decode-loader="true">Decode</button>
         </div>
         {% if missing_keys %}
         <div class="result error">Missing keys for {{ missing_keys|length }} DevAddr(s). Save keys before decoding.</div>
@@ -2473,7 +2541,7 @@ DEVICE_KEYS_HTML = """
             <label>Add a new device</label>
           </div>
           <div class="hint">Add a DevAddr upfront so it is ready for future logfiles.</div>
-          <div class="key-grid">
+          <div class="key-grid add-device-grid">
             <div>
               <label for="new_devaddr">DevAddr (hex)</label>
               <input id="new_devaddr" name="new_devaddr" type="text" placeholder="26011BDA">
@@ -4152,7 +4220,7 @@ def about_page():
     body_html = """
       <div class="logfile-options">
         <div class="logfile-option">
-          <h3>LoRaWAN Log Replay</h3>
+          <h3>OpenCollar LP0 Replay tool</h3>
           <div class="hint">Replay, decrypt, and decode Semtech UDP JSONL log files.</div>
         </div>
         <div class="logfile-option">
@@ -4510,6 +4578,71 @@ def decode():
     result_class = "success"
 
     action = request.form.get("action", "").strip()
+    if action == "add_device":
+        devaddr_raw = request.form.get("new_devaddr", "").strip()
+        name_val = request.form.get("new_name", "").strip()
+        nwk_val = request.form.get("new_nwk", "").strip()
+        app_val = request.form.get("new_app", "").strip()
+        if not devaddr_raw:
+            summary_lines = ["DevAddr is required to add a device."]
+            result_class = "error"
+        else:
+            try:
+                devaddr = normalize_devaddr(devaddr_raw)
+            except ValueError as exc:
+                summary_lines = [str(exc)]
+                result_class = "error"
+            else:
+                if (nwk_val or app_val) and not (nwk_val and app_val):
+                    summary_lines = ["Provide both NwkSKey and AppSKey, or leave both empty."]
+                    result_class = "error"
+                else:
+                    entry = credentials.get(devaddr, {})
+                    if name_val:
+                        entry["name"] = name_val
+                    if nwk_val and app_val:
+                        try:
+                            entry["nwk_skey"] = normalize_skey(nwk_val, f"NwkSKey for {devaddr}")
+                            entry["app_skey"] = normalize_skey(app_val, f"AppSKey for {devaddr}")
+                        except ValueError as exc:
+                            summary_lines = [str(exc)]
+                            result_class = "error"
+                            return render_decode_page(
+                                scan_token=scan_token,
+                                devaddrs=devaddrs,
+                                credentials=credentials,
+                                summary_lines=summary_lines,
+                                result_class=result_class,
+                                missing_keys=missing_keys,
+                                decoders=decoders,
+                                selected_decoder=selected_decoder,
+                                decode_results=decode_results,
+                                selected_filename=selected_filename,
+                                export_token=export_token,
+                                back_url=back_url,
+                            )
+                    entry["updated_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                    credentials[devaddr] = entry
+                    save_credentials(credentials)
+                    summary_lines = [f"Device {devaddr} saved."]
+                    result_class = "success"
+
+        missing_keys = get_missing_keys(devaddrs, credentials)
+        return render_decode_page(
+            scan_token=scan_token,
+            devaddrs=devaddrs,
+            credentials=credentials,
+            summary_lines=summary_lines,
+            result_class=result_class,
+            missing_keys=missing_keys,
+            decoders=decoders,
+            selected_decoder=selected_decoder,
+            decode_results=decode_results,
+            selected_filename=selected_filename,
+            export_token=export_token,
+            back_url=back_url,
+        )
+
     if action == "upload_decoder":
         decoder_file = request.files.get("decoder_file")
         if not decoder_file or not decoder_file.filename:
