@@ -22,6 +22,14 @@ python app.py
 
 Open the app in your browser at `http://127.0.0.1:5000`.
 
+## Login
+
+The app now requires authentication for all pages.
+
+- Default credentials: username `admin`, password `admin`.
+- On first login, you must change the password.
+- Use the **Users** page to add users or reset passwords (admin-only for the admin account).
+
 ## What it does
 
 - Scan `.jsonl` LoRaWAN logs and summarize gateways and DevAddr values.

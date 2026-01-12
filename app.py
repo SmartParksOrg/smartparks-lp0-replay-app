@@ -14,10 +14,23 @@ import html
 import threading
 import urllib.parse
 from flask import Flask, request, render_template_string, url_for, send_file, redirect, jsonify
+from flask_login import (
+    LoginManager,
+    UserMixin,
+    current_user,
+    login_required,
+    login_user,
+    logout_user,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 import make_test_log
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+login_manager = LoginManager()
+login_manager.login_view = "login"
+login_manager.init_app(app)
 SCAN_CACHE = {}
 SCAN_CACHE_TTL = 30 * 60
 DECODE_CACHE = {}
@@ -33,6 +46,80 @@ DECODER_DIR = os.path.join(DATA_DIR, "decoders")
 BUILTIN_DECODER_DIR = os.path.join(BASE_DIR, "decoders")
 CREDENTIALS_PATH = os.path.join(DATA_DIR, "credentials.json")
 UPLOAD_INDEX_PATH = os.path.join(DATA_DIR, "uploads.json")
+AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
+
+class AppUser(UserMixin):
+    def __init__(self, user_id):
+        self.id = user_id
+
+
+def get_auth_config():
+    ensure_data_dirs()
+    config = load_json_file(AUTH_PATH, {})
+    if config and "users" in config:
+        return config
+    if config and "username" in config and "password_hash" in config:
+        users = {
+            config["username"]: {
+                "password_hash": config["password_hash"],
+                "must_change": config.get("must_change", False),
+                "created_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            }
+        }
+        config = {"users": users}
+        save_json_file(AUTH_PATH, config)
+        return config
+    config = {
+        "users": {
+            "admin": {
+                "password_hash": generate_password_hash("admin"),
+                "must_change": True,
+                "created_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            }
+        }
+    }
+    save_json_file(AUTH_PATH, config)
+    return config
+
+
+def get_users():
+    return get_auth_config().get("users", {})
+
+
+def save_users(users):
+    config = get_auth_config()
+    config["users"] = users
+    save_json_file(AUTH_PATH, config)
+
+
+def set_auth_password(username, password):
+    users = get_users()
+    entry = users.get(username)
+    if not entry:
+        return False
+    entry["password_hash"] = generate_password_hash(password)
+    entry["must_change"] = False
+    users[username] = entry
+    save_users(users)
+    return True
+
+
+def verify_credentials(username, password):
+    config = get_auth_config()
+    users = config.get("users", {})
+    entry = users.get(username)
+    if not entry:
+        return False
+    return check_password_hash(entry["password_hash"], password)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    config = get_auth_config()
+    if user_id in config.get("users", {}):
+        return AppUser(user_id)
+    return None
+
 
 STYLE_BLOCK = """
   <style>
@@ -117,6 +204,23 @@ STYLE_BLOCK = """
       cursor: pointer;
       font-weight: 600;
       transition: border-color 0.2s, background 0.2s;
+    }
+
+    .top-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .user-pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0.35rem 0.8rem;
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 0.85rem;
+      font-weight: 600;
     }
 
     .menu-toggle span {
@@ -930,6 +1034,30 @@ STYLE_BLOCK = """
       border-bottom: 1px solid var(--border);
     }
 
+    .log-table.users-table th,
+    .log-table.users-table td {
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    .key-grid.user-grid {
+      grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(220px, 1fr) 140px;
+      align-items: end;
+    }
+
+    .users-password-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.35rem;
+    }
+
+    .users-password-row .secondary-button {
+      width: auto;
+      min-width: 0;
+      padding: 0.85rem 1.2rem;
+    }
+
     .log-table th {
       font-weight: 600;
       color: var(--text-muted);
@@ -958,6 +1086,47 @@ STYLE_BLOCK = """
       content: "▼";
       font-size: 0.7rem;
       color: var(--accent);
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      z-index: 90;
+    }
+
+    .modal-overlay[hidden] {
+      display: none;
+    }
+
+    .modal-card {
+      background: #fff;
+      border-radius: 18px;
+      padding: 1.75rem;
+      width: min(520px, 92vw);
+      box-shadow: 0 25px 70px rgba(15, 23, 42, 0.18);
+      border: 1px solid var(--border);
+    }
+
+    .modal-card h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.3rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-top: 1rem;
+      align-items: center;
+    }
+
+    .user-name {
+      font-weight: 700;
     }
 
     .log-table tbody tr.ok td {
@@ -1101,7 +1270,12 @@ STYLE_BLOCK = """
     }
 
     .key-grid.add-device-grid {
-      grid-template-columns: minmax(140px, 0.6fr) minmax(200px, 1fr) minmax(280px, 1.7fr) minmax(280px, 1.7fr);
+      grid-template-columns: minmax(140px, 0.6fr) minmax(260px, 1.4fr) minmax(280px, 1.7fr) minmax(280px, 1.7fr);
+      align-items: end;
+    }
+
+    .key-grid.user-add-grid {
+      grid-template-columns: minmax(200px, 0.8fr) minmax(520px, 2fr);
       align-items: end;
     }
 
@@ -1145,9 +1319,24 @@ STYLE_BLOCK = """
       padding-bottom: 0.2rem;
     }
 
+    @media (max-width: 1100px) {
+      .key-grid.user-grid {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
+      .key-grid.user-grid .remove-cell {
+        justify-content: flex-start;
+        padding-bottom: 0;
+      }
+    }
+
     @media (max-width: 900px) {
       .key-grid.add-device-grid {
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
+      .key-grid.user-add-grid {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       }
 
       .key-grid.device-grid {
@@ -1298,6 +1487,22 @@ SCRIPT_BLOCK = """
       }
     }
 
+    function generatePassword(length = 16) {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+      const array = new Uint8Array(length);
+      if (window.crypto && window.crypto.getRandomValues) {
+        window.crypto.getRandomValues(array);
+      } else {
+        for (let i = 0; i < array.length; i++) {
+          array[i] = Math.floor(Math.random() * chars.length);
+        }
+      }
+      let out = "";
+      for (let i = 0; i < array.length; i++) {
+        out += chars[array[i] % chars.length];
+      }
+      return out;
+    }
     function copyField(fieldId) {
       const input = document.getElementById(fieldId);
       if (!input) return;
@@ -1828,6 +2033,90 @@ SCRIPT_BLOCK = """
         });
       }
 
+      const passwordModal = document.querySelector("[data-password-modal]");
+      if (passwordModal) {
+        const openButtons = document.querySelectorAll("[data-password-reset]");
+        const closeBtn = passwordModal.querySelector("[data-password-close]");
+        const usernameField = passwordModal.querySelector("[data-password-username]");
+        const userLabel = passwordModal.querySelector("[data-password-user]");
+        const passwordInput = passwordModal.querySelector("[data-password-input]");
+        const generateBtn = passwordModal.querySelector("[data-password-generate]");
+        const copyBtn = passwordModal.querySelector("[data-password-copy]");
+
+        const open = (username) => {
+          if (usernameField) usernameField.value = username;
+          if (userLabel) userLabel.textContent = username;
+          if (passwordInput) passwordInput.value = "";
+          passwordModal.hidden = false;
+        };
+
+        const close = () => {
+          passwordModal.hidden = true;
+        };
+
+        openButtons.forEach((button) => {
+          button.addEventListener("click", () => {
+            const username = button.dataset.passwordReset || "";
+            if (!username) return;
+            open(username);
+          });
+        });
+
+        generateBtn?.addEventListener("click", () => {
+          if (!passwordInput) return;
+          passwordInput.value = generatePassword(16);
+        });
+
+        copyBtn?.addEventListener("click", () => {
+          if (!passwordInput) return;
+          passwordInput.select();
+          passwordInput.setSelectionRange(0, 99999);
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(passwordInput.value || "");
+          } else {
+            document.execCommand("copy");
+          }
+        });
+
+        closeBtn?.addEventListener("click", close);
+        passwordModal.addEventListener("click", (event) => {
+          if (event.target === passwordModal) {
+            close();
+          }
+        });
+      }
+
+      document.querySelectorAll("[data-user-name]").forEach((el) => {
+        const name = el.dataset.userName || "";
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) {
+          hash = ((hash << 5) - hash) + name.charCodeAt(i);
+          hash |= 0;
+        }
+        const hue = Math.abs(hash) % 360;
+        el.style.color = `hsl(${hue}, 68%, 36%)`;
+      });
+
+      const tempPasswordInput = document.querySelector("[data-temp-password]");
+      const tempGenerateBtn = document.querySelector("[data-temp-generate]");
+      const tempCopyBtn = document.querySelector("[data-temp-copy]");
+      if (tempPasswordInput && tempGenerateBtn) {
+        tempGenerateBtn.addEventListener("click", () => {
+          tempPasswordInput.value = generatePassword(16);
+        });
+      }
+      if (tempPasswordInput && tempCopyBtn) {
+        tempCopyBtn.addEventListener("click", () => {
+          tempPasswordInput.select();
+          tempPasswordInput.setSelectionRange(0, 99999);
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(tempPasswordInput.value || "");
+          } else {
+            document.execCommand("copy");
+          }
+        });
+      }
+
       const deleteForm = document.querySelector("[data-delete-form]");
       if (deleteForm) {
         const deleteInput = deleteForm.querySelector("[data-delete-input]");
@@ -1926,23 +2215,36 @@ NAV_HTML = """
         <div class="brand-subtitle">Smart Parks</div>
       </div>
     </div>
-    <button type="button" class="menu-toggle" data-menu-toggle aria-expanded="false" aria-controls="site-menu">
-      <span class="bars" aria-hidden="true">
-        <span class="bar"></span>
-        <span class="bar"></span>
-        <span class="bar"></span>
-      </span>
-      <span class="menu-label" aria-hidden="true">Menu</span>
-    </button>
+    <div class="top-actions">
+      {% if current_user.is_authenticated %}
+      <span class="user-pill">Signed in as {{ current_user.id }}</span>
+      <form method="POST" action="{{ logout_url }}">
+        <button type="submit" class="secondary-button">Log out</button>
+      </form>
+      {% endif %}
+      {% if show_menu %}
+      <button type="button" class="menu-toggle" data-menu-toggle aria-expanded="false" aria-controls="site-menu">
+        <span class="bars" aria-hidden="true">
+          <span class="bar"></span>
+          <span class="bar"></span>
+          <span class="bar"></span>
+        </span>
+        <span class="menu-label" aria-hidden="true">Menu</span>
+      </button>
+      {% endif %}
+    </div>
   </header>
+  {% if show_menu %}
   <nav id="site-menu" class="menu-panel" data-menu-panel hidden>
     <a class="menu-link {% if active_page == 'start' %}active{% endif %}" href="{{ start_url }}">Start</a>
     <a class="menu-link {% if active_page == 'devices' %}active{% endif %}" href="{{ devices_url }}">Devices</a>
+    <a class="menu-link {% if active_page == 'users' %}active{% endif %}" href="{{ users_url }}">Users</a>
     <a class="menu-link {% if active_page == 'files' %}active{% endif %}" href="{{ files_url }}">Files</a>
     <a class="menu-link {% if active_page == 'decoders' %}active{% endif %}" href="{{ decoders_url }}">Decoders</a>
     <a class="menu-link {% if active_page == 'integrations' %}active{% endif %}" href="{{ integrations_url }}">Integrations</a>
     <a class="menu-link {% if active_page == 'about' %}active{% endif %}" href="{{ about_url }}">About</a>
   </nav>
+  {% endif %}
 """
 
 HTML = """
@@ -2241,6 +2543,107 @@ SIMPLE_PAGE_HTML = """
       A Smart Parks tool to Protect Wildlife with Passion and Technology.
       <a href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
     </p>
+  </div>
+  {{ script_block|safe }}
+</body>
+</html>
+"""
+
+LOGIN_HTML = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Sign in</title>
+  <link rel="icon" type="image/x-icon" href="{{ favicon_url }}">
+  {{ style_block|safe }}
+</head>
+<body>
+  <div class="outer-column">
+    {{ nav_html|safe }}
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h1>Sign in</h1>
+          <p class="subtitle">Authenticate to access the Replay tool.</p>
+        </div>
+      </div>
+
+      {% if error_message %}
+      <div class="result error">{{ error_message }}</div>
+      {% endif %}
+
+      <form method="POST" action="{{ login_url }}">
+        <div>
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" autocomplete="username" required>
+        </div>
+        <div>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        {% if next_url %}
+        <input type="hidden" name="next" value="{{ next_url }}">
+        {% endif %}
+        <div class="form-actions">
+          <button type="submit">Sign in</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {{ script_block|safe }}
+</body>
+</html>
+"""
+
+CHANGE_PASSWORD_HTML = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Change password</title>
+  <link rel="icon" type="image/x-icon" href="{{ favicon_url }}">
+  {{ style_block|safe }}
+</head>
+<body>
+  <div class="outer-column">
+    {{ nav_html|safe }}
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h1>Change password</h1>
+          <p class="subtitle">Set a new password to continue.</p>
+        </div>
+      </div>
+
+      {% if error_message %}
+      <div class="result error">{{ error_message }}</div>
+      {% endif %}
+
+      {% if success_message %}
+      <div class="result success">{{ success_message }}</div>
+      {% endif %}
+
+      <form method="POST" action="{{ change_password_url }}">
+        <div>
+          <label for="current_password">Current password</label>
+          <input id="current_password" name="current_password" type="password" autocomplete="current-password" required>
+        </div>
+        <div>
+          <label for="new_password">New password</label>
+          <input id="new_password" name="new_password" type="password" autocomplete="new-password" required>
+        </div>
+        <div>
+          <label for="confirm_password">Confirm new password</label>
+          <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required>
+        </div>
+        <div class="form-actions">
+          <button type="submit">Update password</button>
+        </div>
+      </form>
+    </div>
   </div>
   {{ script_block|safe }}
 </body>
@@ -3559,10 +3962,13 @@ def nav_context(active_page, logo_url):
         "active_page": active_page,
         "start_url": url_for("index"),
         "devices_url": url_for("device_keys"),
+        "users_url": url_for("users_page"),
         "files_url": url_for("files_page"),
         "decoders_url": url_for("decoders_page"),
         "integrations_url": url_for("integrations_page"),
         "about_url": url_for("about_page"),
+        "logout_url": url_for("logout"),
+        "show_menu": current_user.is_authenticated,
     }
     nav_html = render_template_string(NAV_HTML, logo_url=logo_url, **context)
     return {**context, "nav_html": nav_html}
@@ -3794,18 +4200,287 @@ def render_device_keys_page(
     )
 
 
+def is_safe_redirect(target):
+    if not target:
+        return False
+    parsed = urllib.parse.urlparse(target)
+    if parsed.scheme or parsed.netloc:
+        return False
+    return True
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        config = get_auth_config()
+        if config.get("must_change"):
+            return redirect(url_for("change_password"))
+        return redirect(url_for("index"))
+    error_message = ""
+    next_url = request.args.get("next") or request.form.get("next") or ""
+    config = get_auth_config()
+    configured = bool(config.get("users"))
+    if request.method == "POST":
+        if not configured:
+            error_message = "Authentication is not configured."
+        else:
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+            if verify_credentials(username, password):
+                login_user(AppUser(username))
+                user_entry = config.get("users", {}).get(username, {})
+                if user_entry.get("must_change"):
+                    return redirect(url_for("change_password"))
+                if is_safe_redirect(next_url):
+                    return redirect(next_url)
+                return redirect(url_for("index"))
+            error_message = "Invalid username or password."
+    logo_url = url_for("static", filename="company_logo.png")
+    return render_template_string(
+        LOGIN_HTML,
+        style_block=STYLE_BLOCK,
+        script_block=SCRIPT_BLOCK,
+        logo_url=logo_url,
+        favicon_url=url_for("static", filename="favicon.ico"),
+        login_url=url_for("login"),
+        error_message=error_message,
+        configured=configured,
+        next_url=next_url,
+        **nav_context("start", logo_url),
+    )
+
+
+@app.route("/change-password", methods=["GET", "POST"])
+@login_required
+def change_password():
+    error_message = ""
+    if request.method == "POST":
+        current_password = request.form.get("current_password", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        if not verify_credentials(current_user.id, current_password):
+            error_message = "Current password is incorrect."
+        elif not new_password:
+            error_message = "New password is required."
+        elif new_password != confirm_password:
+            error_message = "New passwords do not match."
+        else:
+            set_auth_password(current_user.id, new_password)
+            return redirect(url_for("index"))
+    logo_url = url_for("static", filename="company_logo.png")
+    return render_template_string(
+        CHANGE_PASSWORD_HTML,
+        style_block=STYLE_BLOCK,
+        script_block=SCRIPT_BLOCK,
+        logo_url=logo_url,
+        favicon_url=url_for("static", filename="favicon.ico"),
+        change_password_url=url_for("change_password"),
+        error_message=error_message,
+        success_message=success_message,
+        **nav_context("start", logo_url),
+    )
+
+
+@app.route("/logout", methods=["POST"])
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("login"))
+
+
+@app.route("/users", methods=["GET", "POST"])
+@login_required
+def users_page():
+    users = get_users()
+    summary_lines = []
+    result_class = "success"
+    action = request.form.get("action", "").strip()
+
+    if action == "add_user":
+        username = request.form.get("new_username", "").strip()
+        password = request.form.get("new_password", "")
+        if not username or not password:
+            summary_lines = ["Username and password are required."]
+            result_class = "error"
+        elif username in users:
+            summary_lines = [f"User {username} already exists."]
+            result_class = "error"
+        else:
+            users[username] = {
+                "password_hash": generate_password_hash(password),
+                "must_change": True,
+                "created_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            }
+            save_users(users)
+            summary_lines = [f"User {username} created."]
+
+    if action == "update_user":
+        username = request.form.get("username", "").strip()
+        new_password = request.form.get("new_password", "")
+        if username not in users:
+            summary_lines = [f"User {username} not found."]
+            result_class = "error"
+        elif username == "admin" and current_user.id != "admin":
+            summary_lines = ["Only admin can reset the admin password."]
+            result_class = "error"
+        elif not new_password:
+            summary_lines = ["New password is required."]
+            result_class = "error"
+        else:
+            users[username]["password_hash"] = generate_password_hash(new_password)
+            users[username]["must_change"] = True
+            save_users(users)
+            summary_lines = [f"Password reset for {username}."]
+
+    if action == "delete_user":
+        username = request.form.get("username", "").strip()
+        if username == "admin":
+            summary_lines = ["The admin account cannot be removed."]
+            result_class = "error"
+        elif username == current_user.id:
+            summary_lines = ["You cannot remove your own account."]
+            result_class = "error"
+        elif username not in users:
+            summary_lines = [f"User {username} not found."]
+            result_class = "error"
+        else:
+            users.pop(username, None)
+            save_users(users)
+            summary_lines = [f"User {username} removed."]
+
+    sorted_users = sorted(users.items(), key=lambda item: item[0].lower())
+    user_rows = []
+    for username, entry in sorted_users:
+        must_change = "Yes" if entry.get("must_change") else "No"
+        can_edit_admin = current_user.id == "admin"
+        reset_disabled = username == "admin" and not can_edit_admin
+        show_remove = username != "admin"
+        remove_html = ""
+        if show_remove:
+            remove_html = (
+                f"<div class=\"remove-cell\">"
+                f"<form method=\"POST\" action=\"{url_for('users_page')}\">"
+                f"<input type=\"hidden\" name=\"action\" value=\"delete_user\">"
+                f"<input type=\"hidden\" name=\"username\" value=\"{html.escape(username)}\">"
+                f"<button type=\"submit\" class=\"danger-button danger-text\">Remove</button>"
+                f"</form>"
+                f"</div>"
+            )
+        user_rows.append(
+            f"<div class=\"device-row\">"
+            f"<div class=\"key-grid user-grid\">"
+            f"<div>"
+            f"<label>Username</label>"
+            f"<div class=\"hint user-name\" data-user-name=\"{html.escape(username)}\">{html.escape(username)}</div>"
+            f"</div>"
+            f"<div>"
+            f"<label>Must change password</label>"
+            f"<div class=\"hint\">{must_change}</div>"
+            f"</div>"
+            f"<div>"
+            f"<div class=\"users-password-row\">"
+            f"<button type=\"button\" class=\"secondary-button\" data-password-reset=\"{html.escape(username)}\" "
+            f"{'disabled' if reset_disabled else ''}>Change password</button>"
+            f"</div>"
+            f"</div>"
+            f"{remove_html}"
+            f"</div>"
+            f"</div>"
+        )
+    rows_html = "".join(user_rows) if user_rows else "<div class=\"hint\">No users found.</div>"
+
+    result_html = ""
+    if summary_lines:
+        summary_items = "".join(f"<div>{html.escape(line)}</div>" for line in summary_lines)
+        result_html = f"<div class=\"result {result_class}\">{summary_items}</div>"
+
+    body_html = f"""
+      {result_html}
+      <div class=\"field-group\">
+        <div class=\"field-header\">
+          <label>Users</label>
+        </div>
+        <div class=\"hint\">Reset passwords or remove accounts. New users will be asked to change their password on first login.</div>
+        <div class=\"device-rows\">
+          {rows_html}
+        </div>
+      </div>
+      <div class=\"section-divider\"></div>
+      <form method=\"POST\" action=\"{url_for('users_page')}\">
+        <input type=\"hidden\" name=\"action\" value=\"add_user\">
+        <div class=\"field-group\">
+          <div class=\"field-header\">
+            <label>Add user</label>
+          </div>
+          <div class=\"key-grid user-add-grid\">
+            <div>
+              <label for=\"new_username\">Username</label>
+              <input id=\"new_username\" name=\"new_username\" type=\"text\" required>
+            </div>
+            <div>
+              <label for=\"new_password\">Temporary password</label>
+              <div class=\"field-controls\">
+                <input id=\"new_password\" name=\"new_password\" type=\"text\" data-temp-password required>
+                <div class=\"field-tools\">
+                  <button type=\"button\" class=\"icon-button\" data-temp-generate title=\"Generate password\">↻</button>
+                  <button type=\"button\" class=\"icon-button\" data-temp-copy title=\"Copy password\">⧉</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class=\"form-actions\">
+          <button type=\"submit\">Add user</button>
+        </div>
+      </form>
+      <div class=\"modal-overlay\" data-password-modal hidden>
+        <div class=\"modal-card\">
+          <h2>Change password</h2>
+          <div class=\"hint\">Set a new password for <strong data-password-user></strong>.</div>
+          <form method=\"POST\" action=\"{url_for('users_page')}\" data-password-form>
+            <input type=\"hidden\" name=\"action\" value=\"update_user\">
+            <input type=\"hidden\" name=\"username\" value=\"\" data-password-username>
+            <div>
+              <label for=\"modal_password\">New password</label>
+              <div class=\"field-controls\">
+                <input id=\"modal_password\" name=\"new_password\" type=\"text\" data-password-input required>
+                <div class=\"field-tools\">
+                  <button type=\"button\" class=\"icon-button\" data-password-generate title=\"Generate password\">↻</button>
+                  <button type=\"button\" class=\"icon-button\" data-password-copy title=\"Copy password\">⧉</button>
+                </div>
+              </div>
+            </div>
+            <div class=\"modal-actions\">
+              <button type=\"submit\">Update password</button>
+              <button type=\"button\" class=\"secondary-button\" data-password-close>Close</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    """
+    return render_simple_page(
+        title="Users",
+        subtitle="Manage access for this app.",
+        body_html=body_html,
+        active_page="users",
+    )
+
+
 @app.route("/", methods=["GET"])
+@login_required
 def index():
     stored_logs = list_stored_logs()
     return render_main_page(stored_logs=stored_logs)
 
 
 @app.route("/keys", methods=["GET"])
+@login_required
 def keys_redirect():
     return redirect(url_for("device_keys"))
 
 
 @app.route("/files", methods=["GET"])
+@login_required
 def files_page():
     stored_logs = list_stored_logs()
     if stored_logs:
@@ -3885,6 +4560,7 @@ def files_page():
 
 
 @app.route("/decoders", methods=["GET", "POST"])
+@login_required
 def decoders_page():
     summary_lines = []
     result_class = "success"
@@ -4012,6 +4688,7 @@ def decoders_page():
 
 
 @app.route("/integrations", methods=["GET"])
+@login_required
 def integrations_page():
     body_html = f"""
       <div class="logfile-options">
@@ -4050,6 +4727,7 @@ def integrations_page():
 
 
 @app.route("/decoders/view", methods=["GET"])
+@login_required
 def view_decoder():
     decoder_id = request.args.get("decoder_id", "").strip()
     if not decoder_id:
@@ -4101,6 +4779,7 @@ def view_decoder():
 
 
 @app.route("/files/view", methods=["GET"])
+@login_required
 def view_log_file():
     log_id = request.args.get("log_id", "").strip()
     entry = get_stored_log_entry(log_id) if log_id else None
@@ -4144,6 +4823,7 @@ def view_log_file():
 
 
 @app.route("/files/download", methods=["GET"])
+@login_required
 def download_log_file():
     log_id = request.args.get("log_id", "").strip()
     entry = get_stored_log_entry(log_id) if log_id else None
@@ -4153,6 +4833,7 @@ def download_log_file():
 
 
 @app.route("/files/delete", methods=["POST"])
+@login_required
 def delete_log_file():
     log_id = request.form.get("log_id", "").strip()
     if log_id:
@@ -4161,6 +4842,7 @@ def delete_log_file():
 
 
 @app.route("/files/decode", methods=["GET"])
+@login_required
 def start_decode_from_file():
     log_id = request.args.get("log_id", "").strip()
     try:
@@ -4178,6 +4860,7 @@ def start_decode_from_file():
 
 
 @app.route("/files/replay", methods=["GET"])
+@login_required
 def start_replay_from_file():
     log_id = request.args.get("log_id", "").strip()
     try:
@@ -4318,6 +5001,7 @@ def run_replay_job(token, parsed, host, port, delay_ms, start_index=0, sent=0, e
 
 
 @app.route("/files/scan", methods=["GET"])
+@login_required
 def start_scan_from_file():
     log_id = request.args.get("log_id", "").strip()
     try:
@@ -4335,6 +5019,7 @@ def start_scan_from_file():
 
 
 @app.route("/about", methods=["GET"])
+@login_required
 def about_page():
     logo_url = url_for("static", filename="company_logo.png")
     body_html = f"""
@@ -4367,6 +5052,7 @@ def about_page():
 
 
 @app.route("/scan", methods=["POST"])
+@login_required
 def scan():
     logfile = request.files.get("logfile")
     stored_log_id = request.form.get("stored_log_id", "").strip()
@@ -4450,6 +5136,7 @@ def scan():
 
 
 @app.route("/replay/status", methods=["GET"])
+@login_required
 def replay_status():
     token = request.args.get("token", "").strip()
     if not token:
@@ -4479,6 +5166,7 @@ def replay_status():
 
 
 @app.route("/replay/stop", methods=["POST"])
+@login_required
 def replay_stop():
     token = request.form.get("replay_token", "").strip()
     scan_token = request.form.get("scan_token", "").strip()
@@ -4505,6 +5193,7 @@ def replay_stop():
 
 
 @app.route("/replay/resume", methods=["POST"])
+@login_required
 def replay_resume():
     token = request.form.get("replay_token", "").strip()
     scan_token = request.form.get("scan_token", "").strip()
@@ -4544,6 +5233,7 @@ def replay_resume():
 
 
 @app.route("/replay", methods=["GET", "POST"])
+@login_required
 def replay():
     scan_token = (request.values.get("scan_token") or "").strip()
     back_url = resolve_back_url(url_for("index"))
@@ -4673,6 +5363,7 @@ def get_missing_keys(devaddrs, credentials):
 
 
 @app.route("/decode", methods=["GET", "POST"])
+@login_required
 def decode():
     scan_token = request.form.get("scan_token") or request.args.get("scan_token", "")
     scan_token = scan_token.strip()
@@ -4888,6 +5579,7 @@ def decode():
 
 
 @app.route("/devices", methods=["GET", "POST"])
+@login_required
 def device_keys():
     scan_token = request.form.get("scan_token") or request.args.get("scan_token", "")
     scan_token = scan_token.strip()
@@ -5016,6 +5708,7 @@ def device_keys():
 
 
 @app.route("/export/<fmt>", methods=["GET"])
+@login_required
 def export_results(fmt):
     token = request.args.get("token", "").strip()
     rows = get_decode_result(token)
@@ -5060,6 +5753,7 @@ def export_results(fmt):
 
 
 @app.route("/generate-log", methods=["GET", "POST"])
+@login_required
 def generate_log_page():
     if request.method == "GET":
         log_id = request.args.get("log_id", "").strip()
