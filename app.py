@@ -12,6 +12,7 @@ import csv
 import subprocess
 import html
 import threading
+import urllib.parse
 from flask import Flask, request, render_template_string, url_for, send_file, redirect, jsonify
 from werkzeug.utils import secure_filename
 import make_test_log
@@ -1978,7 +1979,7 @@ REPLAY_HTML = """
           <h1>Replay</h1>
           <p class="subtitle">Replay uplinks from <strong>{{ selected_filename }}</strong> to your UDP forwarder.</p>
         </div>
-        <a class="secondary-button" href="{{ start_url }}">Back to Start</a>
+        <a class="secondary-button" href="{{ back_url }}">Back</a>
       </div>
 
       {% if summary_lines %}
@@ -2166,7 +2167,7 @@ SIMPLE_PAGE_HTML = """
           <h1>{{ title }}</h1>
           <p class="subtitle">{{ subtitle }}</p>
         </div>
-        <a class="secondary-button" href="{{ start_url }}">Back to Start</a>
+        <a class="secondary-button" href="{{ back_url }}">Back</a>
       </div>
       {{ body_html|safe }}
     </div>
@@ -2200,7 +2201,7 @@ DECODE_HTML = """
           <h1>Decrypt &amp; Decode</h1>
           <p class="subtitle">Decrypt uplinks from <strong>{{ selected_filename }}</strong> and decode them with your payload decoder.</p>
         </div>
-        <a class="secondary-button" href="{{ start_url }}">Back to Start</a>
+        <a class="secondary-button" href="{{ back_url }}">Back</a>
       </div>
 
       {% if summary_lines %}
@@ -2242,21 +2243,6 @@ DECODE_HTML = """
 
       <div class="section-divider"></div>
 
-      <form method="POST" action="{{ decode_url }}" enctype="multipart/form-data">
-        <input type="hidden" name="scan_token" value="{{ scan_token }}">
-        <input type="hidden" name="action" value="upload_decoder">
-        <div>
-          <label for="decoder_file">Upload a payload decoder (.js)</label>
-          <input id="decoder_file" name="decoder_file" type="file" accept=".js">
-          <div class="hint">JS decoders should define <code>Decoder(bytes, port)</code> or <code>decodeUplink({ bytes, fPort })</code> (TTN style).</div>
-        </div>
-        <div class="form-actions">
-          <button type="submit">Upload decoder</button>
-        </div>
-      </form>
-
-      <div class="section-divider"></div>
-
       <form method="POST" action="{{ decode_url }}">
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         <input type="hidden" name="action" value="decode">
@@ -2271,6 +2257,7 @@ DECODE_HTML = """
         </div>
         <div class="form-actions">
           <button type="submit" {% if missing_keys %}disabled{% endif %} data-show-decode-loader="true">Decode</button>
+          <a class="secondary-button" href="{{ decoders_url }}">Manage decoders</a>
         </div>
         {% if missing_keys %}
         <div class="result error">Missing keys for {{ missing_keys|length }} DevAddr(s). Save keys before decoding.</div>
@@ -2405,7 +2392,7 @@ DEVICE_KEYS_HTML = """
           <h1>Device Session Keys</h1>
           <p class="subtitle">Store DevAddr, optional names, and ABP session keys for decoding.</p>
         </div>
-        <a class="secondary-button" href="{{ start_url }}">Back to Start</a>
+        <a class="secondary-button" href="{{ back_url }}">Back</a>
       </div>
 
       {% if summary_lines %}
@@ -3183,6 +3170,30 @@ def prune_replay_cache(now=None):
         del REPLAY_CACHE[token]
 
 
+def resolve_back_url(default_url):
+    referrer = request.referrer or ""
+    if not referrer:
+        return default_url
+    if referrer == request.url:
+        return default_url
+    parsed = urllib.parse.urlparse(referrer)
+    host = urllib.parse.urlparse(request.host_url)
+    if parsed.netloc and parsed.netloc != host.netloc:
+        return default_url
+    if parsed.scheme and parsed.scheme != host.scheme:
+        return default_url
+    blocked_paths = {
+        "/scan",
+        "/files/delete",
+        "/replay/stop",
+        "/replay/resume",
+        "/replay/status",
+    }
+    if parsed.path in blocked_paths:
+        return default_url
+    return referrer
+
+
 def store_replay_job(total, host, port, delay_ms, start_index=0, sent=0, errors=0, log_lines=None):
     prune_replay_cache()
     token = secrets.token_urlsafe(16)
@@ -3457,6 +3468,7 @@ def render_replay_page(
     replay_token="",
     replay_total=0,
     replay_status="",
+    back_url="",
 ):
     values = {
         "host": "127.0.0.1",
@@ -3489,12 +3501,14 @@ def render_replay_page(
         replay_token=replay_token,
         replay_total=replay_total,
         replay_status=replay_status,
+        back_url=back_url or url_for("index"),
         **nav_context("start", logo_url),
     )
 
 
 def render_simple_page(title, subtitle, body_html, active_page, page_title=None):
     logo_url = url_for("static", filename="company_logo.png")
+    back_url = resolve_back_url(url_for("index"))
     return render_template_string(
         SIMPLE_PAGE_HTML,
         style_block=STYLE_BLOCK,
@@ -3505,6 +3519,7 @@ def render_simple_page(title, subtitle, body_html, active_page, page_title=None)
         subtitle=subtitle,
         body_html=body_html,
         page_title=page_title or title,
+        back_url=back_url,
         **nav_context(active_page, logo_url),
     )
 
@@ -3541,6 +3556,7 @@ def render_decode_page(
     decode_results=None,
     selected_filename="",
     export_token="",
+    back_url="",
 ):
     export_csv_url = url_for("export_results", fmt="csv", token=export_token) if export_token else ""
     export_json_url = url_for("export_results", fmt="json", token=export_token) if export_token else ""
@@ -3565,6 +3581,7 @@ def render_decode_page(
         selected_filename=selected_filename,
         export_csv_url=export_csv_url,
         export_json_url=export_json_url,
+        back_url=back_url or url_for("index"),
         **nav_context("decoders", logo_url),
     )
 
@@ -3576,6 +3593,7 @@ def render_device_keys_page(
     scan_token="",
     scan_summary_lines=None,
     scan_filename="",
+    back_url="",
 ):
     known_devaddrs = sorted(credentials.keys())
     decode_url = url_for("decode")
@@ -3597,6 +3615,7 @@ def render_device_keys_page(
         scan_token=scan_token,
         scan_summary_lines=scan_summary_lines or [],
         scan_filename=scan_filename,
+        back_url=back_url or url_for("index"),
         **nav_context("devices", logo_url),
     )
 
@@ -4333,10 +4352,12 @@ def replay_resume():
 @app.route("/replay", methods=["GET", "POST"])
 def replay():
     scan_token = (request.values.get("scan_token") or "").strip()
+    back_url = resolve_back_url(url_for("index"))
     if not scan_token:
         return render_replay_page(
             summary_lines=["Scan a logfile first."],
             summary_class="error",
+            back_url=back_url,
         )
 
     cached = get_scan_result(scan_token)
@@ -4345,6 +4366,7 @@ def replay():
             summary_lines=["Scan expired or not found. Please upload the logfile again."],
             summary_class="error",
             scan_token=scan_token,
+            back_url=back_url,
         )
 
     parsed, gateways, devaddrs, selected_filename, _stored_log_id = cached
@@ -4386,6 +4408,7 @@ def replay():
             replay_token=replay_token if replay_job else "",
             replay_total=replay_total,
             replay_status=replay_status,
+            back_url=back_url,
         )
 
     host = request.form.get("host", "").strip() or "127.0.0.1"
@@ -4403,6 +4426,7 @@ def replay():
             summary_class="success",
             result_lines=[f"Invalid UDP port: {port_raw}"],
             result_class="error",
+            back_url=back_url,
         )
 
     try:
@@ -4418,6 +4442,7 @@ def replay():
             summary_class="success",
             result_lines=[f"Invalid delay in milliseconds: {delay_raw}"],
             result_class="error",
+            back_url=back_url,
         )
 
     if not parsed:
@@ -4429,6 +4454,7 @@ def replay():
             summary_class="error",
             result_lines=["No valid uplinks found."],
             result_class="error",
+            back_url=back_url,
         )
 
     job_token = store_replay_job(len(parsed), host, port, delay_ms)
@@ -4456,6 +4482,7 @@ def get_missing_keys(devaddrs, credentials):
 def decode():
     scan_token = request.form.get("scan_token") or request.args.get("scan_token", "")
     scan_token = scan_token.strip()
+    back_url = resolve_back_url(url_for("index"))
     if not scan_token:
         return render_main_page(["Scan a logfile first."], "error", stored_logs=list_stored_logs())
 
@@ -4597,6 +4624,7 @@ def decode():
         decode_results=decode_results,
         selected_filename=selected_filename,
         export_token=export_token,
+        back_url=back_url,
     )
 
 
@@ -4604,6 +4632,7 @@ def decode():
 def device_keys():
     scan_token = request.form.get("scan_token") or request.args.get("scan_token", "")
     scan_token = scan_token.strip()
+    back_url = resolve_back_url(url_for("index"))
     credentials = load_credentials()
     summary_lines = []
     result_class = "success"
@@ -4642,6 +4671,7 @@ def device_keys():
             scan_token=scan_token,
             scan_summary_lines=scan_summary_lines,
             scan_filename=scan_filename,
+            back_url=back_url,
         )
 
     if action == "save_keys":
@@ -4707,6 +4737,7 @@ def device_keys():
                                 summary_lines=summary_lines,
                                 result_class=result_class,
                                 scan_token=scan_token,
+                                back_url=back_url,
                             )
                     entry["updated_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
                     credentials[devaddr] = entry
@@ -4721,6 +4752,7 @@ def device_keys():
         scan_token=scan_token,
         scan_summary_lines=scan_summary_lines,
         scan_filename=scan_filename,
+        back_url=back_url,
     )
 
 
