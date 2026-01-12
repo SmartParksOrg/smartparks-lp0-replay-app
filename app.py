@@ -649,6 +649,28 @@ STYLE_BLOCK = """
       background: #b91c1c;
     }
 
+    .start-replay-button,
+    .resume-replay-button {
+      background: #16a34a;
+    }
+
+    .start-replay-button:hover,
+    .resume-replay-button:hover {
+      background: #15803d;
+    }
+
+    .restart-replay-button {
+      background: #f97316;
+    }
+
+    .restart-replay-button:hover {
+      background: #ea580c;
+    }
+
+    .is-hidden {
+      display: none;
+    }
+
     .field-controls.key-controls {
       gap: 0.5rem;
     }
@@ -1438,6 +1460,7 @@ SCRIPT_BLOCK = """
       const metaTarget = container.querySelector("[data-replay-target]");
       const logBody = document.querySelector("[data-replay-log-body]");
       const stopButton = document.querySelector("[data-stop-replay]");
+      const resumeButton = document.querySelector("[data-resume-replay]");
 
       let received = 0;
       let done = false;
@@ -1473,12 +1496,14 @@ SCRIPT_BLOCK = """
         }
 
         if (stopButton) {
-          if (data.status === "running") {
-            stopButton.disabled = false;
-          } else {
-            stopButton.disabled = true;
-            stopButton.textContent = data.status === "stopped" ? "Replay stopped" : "Replay done";
-          }
+          const isRunning = data.status === "running";
+          stopButton.disabled = !isRunning;
+          stopButton.classList.toggle("is-hidden", !isRunning);
+        }
+        if (resumeButton) {
+          const isStopped = data.status === "stopped";
+          resumeButton.disabled = !isStopped;
+          resumeButton.classList.toggle("is-hidden", !isStopped);
         }
       };
 
@@ -1927,7 +1952,7 @@ REPLAY_HTML = """
 
       <div class="section-divider"></div>
 
-      <form method="POST" action="{% if replay_token and replay_status == "running" %}{{ replay_stop_url }}{% else %}{{ replay_url }}{% endif %}">
+      <form method="POST" action="{{ replay_url }}">
         <div>
           <label for="host">LoRaWAN server host</label>
           <input id="host" name="host" type="text" value="{{ form_values.host }}" {% if replay_token and replay_status == "running" %}disabled{% endif %}>
@@ -1945,14 +1970,30 @@ REPLAY_HTML = """
         {% if scan_token %}
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         {% endif %}
-        {% if replay_token and replay_status == "running" %}
+        {% if replay_token %}
         <input type="hidden" name="replay_token" value="{{ replay_token }}">
         {% endif %}
         <div class="form-actions">
-          {% if replay_token and replay_status == "running" %}
-          <button type="submit" class="stop-replay-button" data-stop-replay>Stop Replay</button>
-          {% else %}
-          <button type="submit" {% if not scan_token %}disabled{% endif %}>Replay</button>
+          {% if replay_token %}
+          <button type="submit" class="stop-replay-button{% if replay_status != "running" %} is-hidden{% endif %}"
+                  data-stop-replay formaction="{{ replay_stop_url }}"
+                  {% if replay_status != "running" %}disabled{% endif %}>
+            Stop Replay
+          </button>
+          <button type="submit" class="resume-replay-button{% if replay_status != "stopped" %} is-hidden{% endif %}"
+                  data-resume-replay formaction="{{ replay_resume_url }}"
+                  {% if replay_status != "stopped" %}disabled{% endif %}>
+            Resume Replay
+          </button>
+          {% endif %}
+          {% if not replay_token or replay_status != "running" %}
+          <button type="submit" class="{% if replay_token and replay_status == "stopped" %}restart-replay-button{% else %}start-replay-button{% endif %}" data-replay-start {% if not scan_token %}disabled{% endif %}>
+            {% if replay_token and replay_status == "stopped" %}
+            Restart Replay
+            {% else %}
+            Start Replay
+            {% endif %}
+          </button>
           {% endif %}
         </div>
       </form>
@@ -3093,19 +3134,21 @@ def prune_replay_cache(now=None):
         del REPLAY_CACHE[token]
 
 
-def store_replay_job(total, host, port, delay_ms):
+def store_replay_job(total, host, port, delay_ms, start_index=0, sent=0, errors=0, log_lines=None):
     prune_replay_cache()
     token = secrets.token_urlsafe(16)
     REPLAY_CACHE[token] = {
         "ts": time.time(),
         "status": "running",
         "total": total,
-        "sent": 0,
-        "errors": 0,
+        "sent": sent,
+        "errors": errors,
         "host": host,
         "port": port,
         "delay_ms": delay_ms,
-        "log_lines": [],
+        "start_index": start_index,
+        "current_index": start_index,
+        "log_lines": list(log_lines or []),
     }
     return token
 
@@ -3385,6 +3428,7 @@ def render_replay_page(
         replay_url=url_for("replay"),
         replay_status_url=url_for("replay_status"),
         replay_stop_url=url_for("replay_stop"),
+        replay_resume_url=url_for("replay_resume"),
         form_values=values,
         scan_token=scan_token,
         selected_filename=selected_filename,
@@ -3895,14 +3939,12 @@ def start_replay_from_file():
     return redirect(url_for("replay", scan_token=scan_token))
 
 
-def run_replay_job(token, parsed, host, port, delay_ms):
+def run_replay_job(token, parsed, host, port, delay_ms, start_index=0, sent=0, errors=0):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sent = 0
-    errors = 0
     total = len(parsed)
 
     try:
-        for idx, rec in enumerate(parsed, start=1):
+        for idx, rec in enumerate(parsed[start_index:], start=start_index + 1):
             entry = get_replay_job(token)
             if not entry or entry.get("status") != "running":
                 break
@@ -3939,6 +3981,7 @@ def run_replay_job(token, parsed, host, port, delay_ms):
                     sent=sent,
                     errors=errors,
                 )
+                update_replay_job(token, current_index=idx, sent=sent, errors=errors)
                 continue
 
             try:
@@ -4009,6 +4052,7 @@ def run_replay_job(token, parsed, host, port, delay_ms):
 
             if send_attempted and delay_ms > 0 and idx < total:
                 time.sleep(delay_ms / 1000.0)
+            update_replay_job(token, current_index=idx, sent=sent, errors=errors)
     finally:
         sock.close()
         entry = get_replay_job(token)
@@ -4183,7 +4227,7 @@ def replay_stop():
             append_replay_log(
                 token,
                 {
-                    "index": len(entry.get("log_lines", [])) + 1,
+                    "index": "",
                     "status": "Stopped",
                     "send_time_ms": send_time_ms,
                     "gateway": "",
@@ -4196,6 +4240,45 @@ def replay_stop():
             )
             update_replay_job(token, status="stopped")
     return redirect(url_for("replay", scan_token=scan_token, replay_token=token))
+
+
+@app.route("/replay/resume", methods=["POST"])
+def replay_resume():
+    token = request.form.get("replay_token", "").strip()
+    scan_token = request.form.get("scan_token", "").strip()
+    entry = get_replay_job(token) if token else None
+    if not entry or entry.get("status") != "stopped":
+        return redirect(url_for("replay", scan_token=scan_token))
+    cached = get_scan_result(scan_token)
+    if not cached:
+        return redirect(url_for("replay", scan_token=scan_token))
+
+    parsed, _gateways, _devaddrs, _selected_filename, _stored_log_id = cached
+    start_index = min(int(entry.get("current_index", 0)), len(parsed))
+    host = entry.get("host", "127.0.0.1")
+    port = int(entry.get("port", 1700))
+    delay_ms = int(entry.get("delay_ms", 500))
+    sent = int(entry.get("sent", 0))
+    errors = int(entry.get("errors", 0))
+    log_lines = list(entry.get("log_lines", []))
+
+    job_token = store_replay_job(
+        len(parsed),
+        host,
+        port,
+        delay_ms,
+        start_index=start_index,
+        sent=sent,
+        errors=errors,
+        log_lines=log_lines,
+    )
+    thread = threading.Thread(
+        target=run_replay_job,
+        args=(job_token, parsed, host, port, delay_ms, start_index, sent, errors),
+        daemon=True,
+    )
+    thread.start()
+    return redirect(url_for("replay", scan_token=scan_token, replay_token=job_token))
 
 
 @app.route("/replay", methods=["GET", "POST"])
@@ -4302,7 +4385,7 @@ def replay():
     job_token = store_replay_job(len(parsed), host, port, delay_ms)
     thread = threading.Thread(
         target=run_replay_job,
-        args=(job_token, parsed, host, port, delay_ms),
+        args=(job_token, parsed, host, port, delay_ms, 0, 0, 0),
         daemon=True,
     )
     thread.start()
