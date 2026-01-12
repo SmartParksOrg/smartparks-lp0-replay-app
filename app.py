@@ -598,6 +598,7 @@ STYLE_BLOCK = """
       padding: 0.85rem 1.2rem;
       border-radius: 12px;
       border: 1px solid var(--border);
+      background: #fff;
       color: var(--accent);
       font-weight: 600;
       text-decoration: none;
@@ -605,6 +606,7 @@ STYLE_BLOCK = """
     }
 
     .secondary-button:hover {
+      background: #f8fafc;
       border-color: var(--accent);
       color: var(--accent-hover);
     }
@@ -1114,6 +1116,21 @@ STYLE_BLOCK = """
       border-radius: 16px;
       padding: 1rem 1.2rem;
       box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+    }
+
+    .integration-block {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      opacity: 0.7;
+    }
+
+    .integration-block .secondary-button,
+    .integration-block button {
+      background: #f1f5f9;
+      border-color: #e2e8f0;
+      color: #94a3b8;
+      cursor: not-allowed;
+      pointer-events: none;
     }
 
     .hint-divider {
@@ -3749,7 +3766,7 @@ def files_page():
       </div>
       <div class="section-divider"></div>
       <div class="logfile-options">
-        <div class="logfile-option">
+        <div class="logfile-option integration-block">
           <h3>Upload a log file</h3>
           <div class="hint">Upload a new JSONL log and scan it right away.</div>
           <form method="POST" action="{url_for('scan')}" enctype="multipart/form-data" data-scan-url="{url_for('scan')}">
@@ -3763,7 +3780,7 @@ def files_page():
             </div>
           </form>
         </div>
-        <div class="logfile-option">
+        <div class="logfile-option integration-block">
           <h3>Generate a sample log file</h3>
           <div class="hint">Download a ready-made JSONL sample.</div>
           <div class="option-actions">
@@ -3911,16 +3928,29 @@ def decoders_page():
 def integrations_page():
     body_html = f"""
       <div class="logfile-options">
-        <div class="logfile-option">
-          <h3>UDP forwarder replay</h3>
-          <div class="hint">Replay uplinks to a Semtech UDP forwarder compatible server.</div>
+        <div class="logfile-option integration-block">
+          <h3>EarthRanger (HTTP)</h3>
+          <div class="hint">Send decoded uplinks to EarthRanger via HTTP integration.</div>
           <div class="option-actions">
-            <a class="secondary-button" href="{url_for('replay')}">Open replay</a>
+            <button type="button" class="secondary-button">Add integration</button>
+            <button type="button" class="secondary-button">Manage</button>
           </div>
         </div>
-        <div class="logfile-option">
-          <h3>Decoder exports</h3>
-          <div class="hint">Export decoded payloads as CSV or JSON after decoding.</div>
+        <div class="logfile-option integration-block">
+          <h3>InfluxDB</h3>
+          <div class="hint">Stream decoded uplinks into an InfluxDB bucket.</div>
+          <div class="option-actions">
+            <button type="button" class="secondary-button">Add integration</button>
+            <button type="button" class="secondary-button">Manage</button>
+          </div>
+        </div>
+        <div class="logfile-option integration-block">
+          <h3>MQTT</h3>
+          <div class="hint">Publish decoded uplinks to an MQTT broker.</div>
+          <div class="option-actions">
+            <button type="button" class="secondary-button">Add integration</button>
+            <button type="button" class="secondary-button">Manage</button>
+          </div>
         </div>
       </div>
     """
