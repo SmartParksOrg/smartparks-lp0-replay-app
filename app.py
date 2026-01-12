@@ -42,6 +42,17 @@ def env_flag(name, default=False):
 PUBLIC_MODE = env_flag("PUBLIC_MODE", False)
 DECODER_UPLOADS_ENABLED = env_flag("DECODER_UPLOADS_ENABLED", not PUBLIC_MODE)
 DECODER_FILE_EXECUTION_ENABLED = env_flag("DECODER_FILE_EXECUTION_ENABLED", not PUBLIC_MODE)
+USER_MAX_LOGS = int(os.environ.get("USER_MAX_LOGS", "50"))
+USER_MAX_LOG_MB = int(os.environ.get("USER_MAX_LOG_MB", "200"))
+USER_MAX_LOG_BYTES = USER_MAX_LOG_MB * 1024 * 1024
+RATE_LIMIT_STATE = {}
+RATE_LIMITS = {
+    "scan": (int(os.environ.get("RATE_LIMIT_SCAN_PER_MIN", "12")), 60),
+    "replay": (int(os.environ.get("RATE_LIMIT_REPLAY_PER_MIN", "6")), 60),
+    "decode": (int(os.environ.get("RATE_LIMIT_DECODE_PER_MIN", "6")), 60),
+    "generate": (int(os.environ.get("RATE_LIMIT_GENERATE_PER_MIN", "6")), 60),
+    "decoder_upload": (int(os.environ.get("RATE_LIMIT_DECODER_UPLOAD_PER_MIN", "6")), 60),
+}
 login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
@@ -102,6 +113,82 @@ def enforce_csrf():
 @app.errorhandler(413)
 def request_entity_too_large(error):
     return "Upload too large.", 413
+
+
+def get_user_id():
+    if current_user and current_user.is_authenticated:
+        return current_user.id
+    return "anonymous"
+
+
+def format_bytes(value):
+    if value < 1024:
+        return f"{value} B"
+    if value < 1024 * 1024:
+        return f"{value / 1024:.1f} KB"
+    return f"{value / (1024 * 1024):.1f} MB"
+
+
+def check_rate_limit(bucket, user_id):
+    limit, window = RATE_LIMITS.get(bucket, (0, 0))
+    if limit <= 0 or window <= 0:
+        return True, 0
+    now = time.time()
+    cutoff = now - window
+    key = f"{bucket}:{user_id}"
+    timestamps = RATE_LIMIT_STATE.get(key, [])
+    timestamps = [stamp for stamp in timestamps if stamp > cutoff]
+    if len(timestamps) >= limit:
+        retry_after = int(window - (now - timestamps[0]))
+        return False, max(retry_after, 1)
+    timestamps.append(now)
+    RATE_LIMIT_STATE[key] = timestamps
+    return True, 0
+
+
+def get_user_log_usage(user_id):
+    count = 0
+    total_bytes = 0
+    for entry in list_stored_logs():
+        if entry.get("owner") != user_id:
+            continue
+        count += 1
+        size = entry.get("size")
+        if size is None:
+            path = entry.get("path", "")
+            if path and os.path.exists(path):
+                try:
+                    size = os.path.getsize(path)
+                except OSError:
+                    size = 0
+        total_bytes += int(size or 0)
+    return count, total_bytes
+
+
+def check_user_log_quota(user_id, new_bytes=None):
+    count, total_bytes = get_user_log_usage(user_id)
+    if USER_MAX_LOGS > 0 and count >= USER_MAX_LOGS:
+        return False, f"Log quota exceeded (max {USER_MAX_LOGS} logs)."
+    if USER_MAX_LOG_BYTES > 0:
+        if new_bytes is None:
+            if total_bytes >= USER_MAX_LOG_BYTES:
+                return False, f"Storage quota exceeded (max {format_bytes(USER_MAX_LOG_BYTES)})."
+        elif total_bytes + int(new_bytes) > USER_MAX_LOG_BYTES:
+            return False, f"Storage quota exceeded (max {format_bytes(USER_MAX_LOG_BYTES)})."
+    return True, ""
+
+
+def enforce_user_log_quota_after_store(user_id, entry):
+    if not entry:
+        return True, ""
+    count, total_bytes = get_user_log_usage(user_id)
+    if USER_MAX_LOGS > 0 and count > USER_MAX_LOGS:
+        delete_stored_log(entry["id"])
+        return False, f"Log quota exceeded (max {USER_MAX_LOGS} logs)."
+    if USER_MAX_LOG_BYTES > 0 and total_bytes > USER_MAX_LOG_BYTES:
+        delete_stored_log(entry["id"])
+        return False, f"Storage quota exceeded (max {format_bytes(USER_MAX_LOG_BYTES)})."
+    return True, ""
 
 
 def get_auth_config():
@@ -3432,17 +3519,24 @@ def get_stored_log_entry(log_id):
     return None
 
 
-def store_uploaded_log(logfile):
+def store_uploaded_log(logfile, owner):
     ensure_data_dirs()
     token = secrets.token_urlsafe(8)
     filename = secure_filename(logfile.filename or "log.jsonl") or "log.jsonl"
     stored_name = f"{token}_{filename}"
     path = os.path.join(UPLOAD_DIR, stored_name)
     logfile.save(path)
+    size = 0
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = 0
     entry = {
         "id": token,
         "filename": filename,
         "path": path,
+        "size": size,
+        "owner": owner,
         "uploaded_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
     entries = load_json_file(UPLOAD_INDEX_PATH, [])
@@ -3451,7 +3545,7 @@ def store_uploaded_log(logfile):
     return entry
 
 
-def store_generated_log(buffer, filename):
+def store_generated_log(buffer, filename, owner):
     ensure_data_dirs()
     token = secrets.token_urlsafe(8)
     filename = secure_filename(filename or "log.jsonl") or "log.jsonl"
@@ -3459,10 +3553,17 @@ def store_generated_log(buffer, filename):
     path = os.path.join(UPLOAD_DIR, stored_name)
     with open(path, "wb") as handle:
         handle.write(buffer.getvalue())
+    size = 0
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = 0
     entry = {
         "id": token,
         "filename": filename,
         "path": path,
+        "size": size,
+        "owner": owner,
         "uploaded_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
     entries = load_json_file(UPLOAD_INDEX_PATH, [])
@@ -4678,21 +4779,26 @@ def decoders_page():
             summary_lines = ["Decoder uploads are disabled."]
             result_class = "error"
         else:
-            decoder_file = request.files.get("decoder_file")
-            if not decoder_file or not decoder_file.filename:
-                summary_lines = ["Please choose a decoder file to upload."]
+            allowed, retry_after = check_rate_limit("decoder_upload", get_user_id())
+            if not allowed:
+                summary_lines = [f"Rate limit exceeded. Try again in {retry_after} seconds."]
                 result_class = "error"
             else:
-                filename = secure_filename(decoder_file.filename)
-                if not filename.lower().endswith(".js"):
-                    summary_lines = ["Decoder file must be a .js file."]
+                decoder_file = request.files.get("decoder_file")
+                if not decoder_file or not decoder_file.filename:
+                    summary_lines = ["Please choose a decoder file to upload."]
                     result_class = "error"
                 else:
-                    ensure_data_dirs()
-                    path = os.path.join(DECODER_DIR, filename)
-                    decoder_file.save(path)
-                    summary_lines = [f"Decoder uploaded: {filename}"]
-                    result_class = "success"
+                    filename = secure_filename(decoder_file.filename)
+                    if not filename.lower().endswith(".js"):
+                        summary_lines = ["Decoder file must be a .js file."]
+                        result_class = "error"
+                    else:
+                        ensure_data_dirs()
+                        path = os.path.join(DECODER_DIR, filename)
+                        decoder_file.save(path)
+                        summary_lines = [f"Decoder uploaded: {filename}"]
+                        result_class = "success"
     if request.method == "POST" and action == "delete_decoder":
         if not uploads_enabled:
             summary_lines = ["Decoder management is disabled."]
@@ -5184,6 +5290,14 @@ def about_page():
 @app.route("/scan", methods=["POST"])
 @login_required
 def scan():
+    user_id = get_user_id()
+    allowed, retry_after = check_rate_limit("scan", user_id)
+    if not allowed:
+        return render_main_page(
+            [f"Rate limit exceeded. Try again in {retry_after} seconds."],
+            "error",
+            stored_logs=list_stored_logs(),
+        )
     logfile = request.files.get("logfile")
     stored_log_id = request.form.get("stored_log_id", "").strip()
     redirect_to = request.form.get("redirect_to", "").strip()
@@ -5193,7 +5307,26 @@ def scan():
 
     stream = None
     if logfile and logfile.filename:
-        entry = store_uploaded_log(logfile)
+        size_hint = logfile.content_length
+        ok, message = check_user_log_quota(user_id, new_bytes=size_hint)
+        if not ok:
+            return render_main_page(
+                [message],
+                "error",
+                form_values=request.form,
+                stored_logs=stored_logs,
+                selected_stored_id=selected_stored_id,
+            )
+        entry = store_uploaded_log(logfile, user_id)
+        ok, message = enforce_user_log_quota_after_store(user_id, entry)
+        if not ok:
+            return render_main_page(
+                [message],
+                "error",
+                form_values=request.form,
+                stored_logs=stored_logs,
+                selected_stored_id=selected_stored_id,
+            )
         selected_filename = entry["filename"]
         selected_stored_id = entry["id"]
         stored_logs = list_stored_logs()
@@ -5365,6 +5498,7 @@ def replay_resume():
 @app.route("/replay", methods=["GET", "POST"])
 @login_required
 def replay():
+    user_id = get_user_id()
     scan_token = (request.values.get("scan_token") or "").strip()
     back_url = resolve_back_url(url_for("index"))
     if not scan_token:
@@ -5422,6 +5556,19 @@ def replay():
             replay_token=replay_token if replay_job else "",
             replay_total=replay_total,
             replay_status=replay_status,
+            back_url=back_url,
+        )
+
+    allowed, retry_after = check_rate_limit("replay", user_id)
+    if not allowed:
+        return render_replay_page(
+            form_values=request.form,
+            scan_token=scan_token,
+            selected_filename=selected_filename,
+            summary_lines=summary_lines,
+            summary_class="success",
+            result_lines=[f"Rate limit exceeded. Try again in {retry_after} seconds."],
+            result_class="error",
             back_url=back_url,
         )
 
@@ -5495,6 +5642,7 @@ def get_missing_keys(devaddrs, credentials):
 @app.route("/decode", methods=["GET", "POST"])
 @login_required
 def decode():
+    user_id = get_user_id()
     scan_token = request.form.get("scan_token") or request.args.get("scan_token", "")
     scan_token = scan_token.strip()
     back_url = resolve_back_url(url_for("index"))
@@ -5595,25 +5743,34 @@ def decode():
             summary_lines = ["Decoder uploads are disabled."]
             result_class = "error"
         else:
-            decoder_file = request.files.get("decoder_file")
-            if not decoder_file or not decoder_file.filename:
-                summary_lines = ["Please choose a decoder file to upload."]
+            allowed, retry_after = check_rate_limit("decoder_upload", user_id)
+            if not allowed:
+                summary_lines = [f"Rate limit exceeded. Try again in {retry_after} seconds."]
                 result_class = "error"
             else:
-                filename = secure_filename(decoder_file.filename)
-                if not filename.lower().endswith(".js"):
-                    summary_lines = ["Decoder file must be a .js file."]
+                decoder_file = request.files.get("decoder_file")
+                if not decoder_file or not decoder_file.filename:
+                    summary_lines = ["Please choose a decoder file to upload."]
                     result_class = "error"
                 else:
-                    ensure_data_dirs()
-                    path = os.path.join(DECODER_DIR, filename)
-                    decoder_file.save(path)
-                    summary_lines = [f"Decoder uploaded: {filename}"]
-                    result_class = "success"
-                    decoders = list_decoders()
+                    filename = secure_filename(decoder_file.filename)
+                    if not filename.lower().endswith(".js"):
+                        summary_lines = ["Decoder file must be a .js file."]
+                        result_class = "error"
+                    else:
+                        ensure_data_dirs()
+                        path = os.path.join(DECODER_DIR, filename)
+                        decoder_file.save(path)
+                        summary_lines = [f"Decoder uploaded: {filename}"]
+                        result_class = "success"
+                        decoders = list_decoders()
 
     if action == "decode":
-        if missing_keys:
+        allowed, retry_after = check_rate_limit("decode", user_id)
+        if not allowed:
+            summary_lines = [f"Rate limit exceeded. Try again in {retry_after} seconds."]
+            result_class = "error"
+        elif missing_keys:
             summary_lines = ["Missing keys. Save keys before decoding."]
             result_class = "error"
         else:
@@ -5889,6 +6046,7 @@ def export_results(fmt):
 @app.route("/generate-log", methods=["GET", "POST"])
 @login_required
 def generate_log_page():
+    user_id = get_user_id()
     if request.method == "GET":
         log_id = request.args.get("log_id", "").strip()
         scan_token = request.args.get("scan_token", "").strip()
@@ -5898,13 +6056,29 @@ def generate_log_page():
             generated_scan_token=scan_token,
         )
 
+    allowed, retry_after = check_rate_limit("generate", user_id)
+    if not allowed:
+        form_values = get_generator_form_values(request.form)
+        return render_generator_page(
+            form_values=form_values,
+            error_message=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+        )
+
     form_values = get_generator_form_values(request.form)
     try:
         log_buffer, filename = generate_logfile_bytes(form_values)
     except ValueError as exc:
         return render_generator_page(form_values=form_values, error_message=str(exc))
 
-    entry = store_generated_log(log_buffer, filename)
+    size_hint = log_buffer.getbuffer().nbytes
+    ok, message = check_user_log_quota(user_id, new_bytes=size_hint)
+    if not ok:
+        return render_generator_page(form_values=form_values, error_message=message)
+
+    entry = store_generated_log(log_buffer, filename, user_id)
+    ok, message = enforce_user_log_quota_after_store(user_id, entry)
+    if not ok:
+        return render_generator_page(form_values=form_values, error_message=message)
     scan_token = ""
     scan_error = ""
     try:
