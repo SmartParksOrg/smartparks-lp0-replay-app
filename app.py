@@ -5077,13 +5077,16 @@ def generate_log_page():
         return render_generator_page(form_values=form_values, error_message=str(exc))
 
     entry = store_generated_log(log_buffer, filename)
+    scan_token = ""
+    scan_error = ""
     try:
         scan_token, _entry = scan_stored_log(entry["id"])
     except ValueError as exc:
-        return render_generator_page(form_values=form_values, error_message=str(exc))
+        scan_error = str(exc)
 
     return render_generator_page(
         form_values=form_values,
+        error_message=scan_error,
         generated_entry=entry,
         generated_scan_token=scan_token,
     )
