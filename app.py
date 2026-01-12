@@ -4249,18 +4249,25 @@ def start_scan_from_file():
 
 @app.route("/about", methods=["GET"])
 def about_page():
-    body_html = """
+    logo_url = url_for("static", filename="company_logo.png")
+    body_html = f"""
       <div class="logfile-options">
         <div class="logfile-option">
-          <h3>OpenCollar LP0 Replay tool</h3>
-          <div class="hint">Replay, decrypt, and decode Semtech UDP JSONL log files.</div>
+          <h3>About Smart Parks</h3>
+          <div style="display: flex; align-items: center; gap: 0.8rem; margin: 0.6rem 0;">
+            <img src="{logo_url}" alt="Smart Parks logo" style="width: 52px; height: auto;">
+            <div class="hint">Protect Wildlife with Passion and Technology.</div>
+          </div>
+          <div class="hint">Smart Parks is a conservation technology organization focused on protecting wildlife and empowering rangers with resilient field tools.</div>
+          <div class="hint">Their solutions combine on-animal sensors, ranger communications, and real-time monitoring to support anti-poaching and animal welfare across protected areas.</div>
+          <div class="option-actions">
+            <a class="secondary-button" href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
+          </div>
         </div>
         <div class="logfile-option">
-          <h3>Smart Parks</h3>
-          <div class="hint">Protect Wildlife with Passion and Technology.</div>
-          <div class="option-actions">
-            <a class="secondary-button" href="https://www.smartparks.org" target="_blank" rel="noopener">Visit smartparks.org</a>
-          </div>
+          <h3>About the App</h3>
+          <div class="hint">OpenCollar LP0 Replay tool helps replay, decrypt, and decode LoRaWAN uplinks captured as Semtech UDP JSONL logs.</div>
+          <div class="hint">Use it to validate uplink pipelines, tune forwarders, and inspect payloads during field tests.</div>
         </div>
       </div>
     """
