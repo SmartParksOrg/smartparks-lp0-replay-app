@@ -69,6 +69,7 @@
 - Rate limits and per-user storage quotas enforced for scan/replay/decode/generate and uploads.
 - Audit logging added for auth events and file/decoder/replay/decode actions (with rotation).
 - Production defaults: debug off by default, proxy-aware option, secure cookie flags, configurable data dir.
+- Security controls documented for deployment configuration.
 
 ## Next Up
 1) Replay target allowlist and optional RFC1918-only restriction.

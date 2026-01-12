@@ -20,7 +20,13 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Open the app in your browser at `http://127.0.0.1:5000`.
+Open the app in your browser at `http://127.0.0.1:18080`.
+
+Optional environment settings:
+- `HOST`, `PORT`, `DEBUG` to control the bind address/port and debug mode.
+- `DATA_DIR` to store app data outside the repo.
+- `TRUST_PROXY=1` when running behind a reverse proxy.
+- `SESSION_COOKIE_SECURE` and `SESSION_COOKIE_SAMESITE` for cookie policy.
 
 ## Login
 
@@ -72,3 +78,16 @@ Notes:
 - Integrations (EarthRanger HTTP, InfluxDB, MQTT) are listed in the UI but not yet implemented.
 - This tool is a local-only web app intended for inspecting and replaying LoRaWAN logs.
 - Do not upload real device keys or production logs to public repos.
+
+## Security Controls
+
+Feature flags and limits can be configured via environment variables:
+- `PUBLIC_MODE=1` disables uploaded decoder execution and uploads by default.
+- `DECODER_UPLOADS_ENABLED=1` and `DECODER_FILE_EXECUTION_ENABLED=1` override decoder defaults.
+- `MAX_CONTENT_MB` limits request body size.
+- `USER_MAX_LOGS` and `USER_MAX_LOG_MB` set per-user log quotas.
+- `RATE_LIMIT_SCAN_PER_MIN`, `RATE_LIMIT_REPLAY_PER_MIN`, `RATE_LIMIT_DECODE_PER_MIN`,
+  `RATE_LIMIT_GENERATE_PER_MIN`, `RATE_LIMIT_DECODER_UPLOAD_PER_MIN` control per-user limits.
+- `AUDIT_LOG_MAX_MB` and `AUDIT_LOG_BACKUPS` control audit log rotation.
+
+Audit log entries are written to `data/audit.log` as JSON lines.
