@@ -641,6 +641,14 @@ STYLE_BLOCK = """
       fill: currentColor;
     }
 
+    .stop-replay-button {
+      background: #dc2626;
+    }
+
+    .stop-replay-button:hover {
+      background: #b91c1c;
+    }
+
     .field-controls.key-controls {
       gap: 0.5rem;
     }
@@ -1429,6 +1437,7 @@ SCRIPT_BLOCK = """
       const progressText = container.querySelector("[data-replay-progress-text]");
       const metaTarget = container.querySelector("[data-replay-target]");
       const logBody = document.querySelector("[data-replay-log-body]");
+      const stopButton = document.querySelector("[data-stop-replay]");
 
       let received = 0;
       let done = false;
@@ -1454,9 +1463,21 @@ SCRIPT_BLOCK = """
           if (data.status === "done") {
             statusBlock.classList.add(errors === 0 ? "success" : "error");
             statusBlock.textContent = `Replay done. Sent ${sent}, errors ${errors}.`;
+          } else if (data.status === "stopped") {
+            statusBlock.classList.add("error");
+            statusBlock.textContent = `Replay stopped. Sent ${sent}, errors ${errors}.`;
           } else {
             statusBlock.classList.add("info");
             statusBlock.textContent = `Replaying... Sent ${sent} of ${total}.`;
+          }
+        }
+
+        if (stopButton) {
+          if (data.status === "running") {
+            stopButton.disabled = false;
+          } else {
+            stopButton.disabled = true;
+            stopButton.textContent = data.status === "stopped" ? "Replay stopped" : "Replay done";
           }
         }
       };
@@ -1523,7 +1544,7 @@ SCRIPT_BLOCK = """
               received = data.count;
             }
             updateStatus(data);
-            if (data.status === "done") {
+            if (data.status === "done" || data.status === "stopped") {
               done = true;
               return;
             }
@@ -1906,26 +1927,33 @@ REPLAY_HTML = """
 
       <div class="section-divider"></div>
 
-      <form method="POST" action="{{ replay_url }}">
+      <form method="POST" action="{% if replay_token and replay_status == "running" %}{{ replay_stop_url }}{% else %}{{ replay_url }}{% endif %}">
         <div>
           <label for="host">LoRaWAN server host</label>
-          <input id="host" name="host" type="text" value="{{ form_values.host }}">
+          <input id="host" name="host" type="text" value="{{ form_values.host }}" {% if replay_token and replay_status == "running" %}disabled{% endif %}>
         </div>
         <div>
           <label for="port">UDP port</label>
-          <input id="port" name="port" type="number" value="{{ form_values.port }}">
+          <input id="port" name="port" type="number" value="{{ form_values.port }}" {% if replay_token and replay_status == "running" %}disabled{% endif %}>
           <div class="hint">The default Semtech UDP port is 1700.</div>
         </div>
         <div>
           <label for="delay_ms">Delay between packets (ms)</label>
-          <input id="delay_ms" name="delay_ms" type="number" min="0" step="1" value="{{ form_values.delay_ms }}">
+          <input id="delay_ms" name="delay_ms" type="number" min="0" step="1" value="{{ form_values.delay_ms }}" {% if replay_token and replay_status == "running" %}disabled{% endif %}>
           <div class="hint">Default is 500 milliseconds.</div>
         </div>
         {% if scan_token %}
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         {% endif %}
+        {% if replay_token and replay_status == "running" %}
+        <input type="hidden" name="replay_token" value="{{ replay_token }}">
+        {% endif %}
         <div class="form-actions">
+          {% if replay_token and replay_status == "running" %}
+          <button type="submit" class="stop-replay-button" data-stop-replay>Stop Replay</button>
+          {% else %}
           <button type="submit" {% if not scan_token %}disabled{% endif %}>Replay</button>
+          {% endif %}
         </div>
       </form>
 
@@ -3336,6 +3364,7 @@ def render_replay_page(
     log_lines=None,
     replay_token="",
     replay_total=0,
+    replay_status="",
 ):
     values = {
         "host": "127.0.0.1",
@@ -3355,6 +3384,7 @@ def render_replay_page(
         favicon_url=url_for("static", filename="favicon.ico"),
         replay_url=url_for("replay"),
         replay_status_url=url_for("replay_status"),
+        replay_stop_url=url_for("replay_stop"),
         form_values=values,
         scan_token=scan_token,
         selected_filename=selected_filename,
@@ -3365,6 +3395,7 @@ def render_replay_page(
         log_lines=log_lines or [],
         replay_token=replay_token,
         replay_total=replay_total,
+        replay_status=replay_status,
         **nav_context("start", logo_url),
     )
 
@@ -3872,6 +3903,9 @@ def run_replay_job(token, parsed, host, port, delay_ms):
 
     try:
         for idx, rec in enumerate(parsed, start=1):
+            entry = get_replay_job(token)
+            if not entry or entry.get("status") != "running":
+                break
             gateway_eui = rec["gateway_eui"]
             rxpk = rec["rxpk"]
             send_attempted = False
@@ -3977,7 +4011,11 @@ def run_replay_job(token, parsed, host, port, delay_ms):
                 time.sleep(delay_ms / 1000.0)
     finally:
         sock.close()
-        update_replay_job(token, status="done", sent=sent, errors=errors)
+        entry = get_replay_job(token)
+        status = entry.get("status") if entry else "done"
+        if status == "running":
+            status = "done"
+        update_replay_job(token, status=status, sent=sent, errors=errors)
 
 
 @app.route("/files/scan", methods=["GET"])
@@ -4134,6 +4172,32 @@ def replay_status():
     return jsonify(payload)
 
 
+@app.route("/replay/stop", methods=["POST"])
+def replay_stop():
+    token = request.form.get("replay_token", "").strip()
+    scan_token = request.form.get("scan_token", "").strip()
+    if token:
+        entry = get_replay_job(token)
+        if entry and entry.get("status") == "running":
+            send_time_ms = int(time.time() * 1000)
+            append_replay_log(
+                token,
+                {
+                    "index": len(entry.get("log_lines", [])) + 1,
+                    "status": "Stopped",
+                    "send_time_ms": send_time_ms,
+                    "gateway": "",
+                    "fcnt": "",
+                    "freq": "",
+                    "size": "",
+                    "message": "Replay stopped by user.",
+                    "css": "err",
+                },
+            )
+            update_replay_job(token, status="stopped")
+    return redirect(url_for("replay", scan_token=scan_token, replay_token=token))
+
+
 @app.route("/replay", methods=["GET", "POST"])
 def replay():
     scan_token = (request.values.get("scan_token") or "").strip()
@@ -4165,6 +4229,7 @@ def replay():
     if request.method == "GET":
         form_values = None
         replay_total = 0
+        replay_status = ""
         result_lines = None
         result_class = ""
         if replay_token and replay_job:
@@ -4174,6 +4239,7 @@ def replay():
                 "delay_ms": str(replay_job.get("delay_ms", "500")),
             }
             replay_total = replay_job.get("total", 0)
+            replay_status = replay_job.get("status", "")
         elif replay_token and not replay_job:
             result_lines = ["Replay job not found or expired."]
             result_class = "error"
@@ -4187,6 +4253,7 @@ def replay():
             result_class=result_class,
             replay_token=replay_token if replay_job else "",
             replay_total=replay_total,
+            replay_status=replay_status,
         )
 
     host = request.form.get("host", "").strip() or "127.0.0.1"
