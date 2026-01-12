@@ -633,8 +633,8 @@ STYLE_BLOCK = """
     .danger-button.danger-text {
       width: auto;
       height: auto;
-      padding: 0.35rem 0.7rem;
-      font-size: 0.85rem;
+      padding: 0.85rem 1.2rem;
+      font-size: 0.9rem;
       font-weight: 600;
       gap: 0.35rem;
     }
@@ -1804,6 +1804,30 @@ SCRIPT_BLOCK = """
         });
       }
 
+      const generatedOverlay = document.querySelector("[data-generated-overlay]");
+      if (generatedOverlay) {
+        const downloadUrl = generatedOverlay.dataset.generatedDownloadUrl || "";
+        const downloadName = generatedOverlay.dataset.generatedFilename || "";
+        if (downloadUrl) {
+          const directLink = document.createElement("a");
+          directLink.href = downloadUrl;
+          if (downloadName) {
+            directLink.download = downloadName;
+          }
+          directLink.click();
+        }
+        const closeBtn = generatedOverlay.querySelector("[data-generated-close]");
+        const close = () => {
+          generatedOverlay.hidden = true;
+        };
+        closeBtn?.addEventListener("click", close);
+        generatedOverlay.addEventListener("click", (event) => {
+          if (event.target === generatedOverlay) {
+            close();
+          }
+        });
+      }
+
       const deleteForm = document.querySelector("[data-delete-form]");
       if (deleteForm) {
         const deleteInput = deleteForm.querySelector("[data-delete-input]");
@@ -2775,6 +2799,29 @@ GENERATOR_HTML = """
       <a href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
     </p>
   </div>
+  {% if generated_entry %}
+  <div class="scan-overlay" data-generated-overlay data-generated-download-url="{{ generated_download_url }}" data-generated-filename="{{ generated_filename }}">
+    <div class="scan-card">
+      <h2>Test log generated</h2>
+      <div class="result success">
+        <div>File generated, stored, and downloaded.</div>
+        {% if generated_filename %}
+        <div>{{ generated_filename }}</div>
+        {% endif %}
+      </div>
+      <div class="form-actions">
+        {% if generated_scan_token %}
+        <a class="secondary-button" href="{{ replay_url }}?scan_token={{ generated_scan_token }}">Replay</a>
+        <a class="secondary-button" href="{{ decode_url }}?scan_token={{ generated_scan_token }}">Decrypt &amp; Decode</a>
+        {% else %}
+        <button type="button" class="secondary-button" disabled>Replay</button>
+        <button type="button" class="secondary-button" disabled>Decrypt &amp; Decode</button>
+        {% endif %}
+        <button type="button" data-generated-close>Close</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   {{ script_block|safe }}
 </body>
 </html>
@@ -2899,6 +2946,26 @@ def store_uploaded_log(logfile):
     stored_name = f"{token}_{filename}"
     path = os.path.join(UPLOAD_DIR, stored_name)
     logfile.save(path)
+    entry = {
+        "id": token,
+        "filename": filename,
+        "path": path,
+        "uploaded_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+    }
+    entries = load_json_file(UPLOAD_INDEX_PATH, [])
+    entries.insert(0, entry)
+    save_json_file(UPLOAD_INDEX_PATH, entries[:200])
+    return entry
+
+
+def store_generated_log(buffer, filename):
+    ensure_data_dirs()
+    token = secrets.token_urlsafe(8)
+    filename = secure_filename(filename or "log.jsonl") or "log.jsonl"
+    stored_name = f"{token}_{filename}"
+    path = os.path.join(UPLOAD_DIR, stored_name)
+    with open(path, "wb") as handle:
+        handle.write(buffer.getvalue())
     entry = {
         "id": token,
         "filename": filename,
@@ -3611,9 +3678,23 @@ def render_simple_page(title, subtitle, body_html, active_page, page_title=None)
     )
 
 
-def render_generator_page(form_values=None, error_message=""):
+def render_generator_page(
+    form_values=None,
+    error_message="",
+    generated_entry=None,
+    generated_scan_token="",
+):
     values = form_values if form_values is not None else get_generator_form_values()
     logo_url = url_for("static", filename="company_logo.png")
+    download_url = ""
+    replay_url = ""
+    decode_url = ""
+    filename = ""
+    if generated_entry:
+        download_url = url_for("download_log_file", log_id=generated_entry["id"])
+        replay_url = url_for("replay")
+        decode_url = url_for("decode")
+        filename = generated_entry.get("filename", "")
     return render_template_string(
         GENERATOR_HTML,
         style_block=STYLE_BLOCK,
@@ -3623,6 +3704,12 @@ def render_generator_page(form_values=None, error_message=""):
         generator_url=url_for("generate_log_page"),
         form_values=values,
         error_message=error_message,
+        generated_entry=generated_entry,
+        generated_download_url=download_url,
+        generated_scan_token=generated_scan_token,
+        generated_filename=filename,
+        replay_url=replay_url,
+        decode_url=decode_url,
         freq_options=EU868_FREQ_OPTIONS,
         datarate_options=EU868_DATARATE_OPTIONS,
         coding_rate_options=EU868_CODING_RATE_OPTIONS,
@@ -3766,7 +3853,7 @@ def files_page():
       </div>
       <div class="section-divider"></div>
       <div class="logfile-options">
-        <div class="logfile-option integration-block">
+        <div class="logfile-option">
           <h3>Upload a log file</h3>
           <div class="hint">Upload a new JSONL log and scan it right away.</div>
           <form method="POST" action="{url_for('scan')}" enctype="multipart/form-data" data-scan-url="{url_for('scan')}">
@@ -3780,7 +3867,7 @@ def files_page():
             </div>
           </form>
         </div>
-        <div class="logfile-option integration-block">
+        <div class="logfile-option">
           <h3>Generate a sample log file</h3>
           <div class="hint">Download a ready-made JSONL sample.</div>
           <div class="option-actions">
@@ -4975,7 +5062,13 @@ def export_results(fmt):
 @app.route("/generate-log", methods=["GET", "POST"])
 def generate_log_page():
     if request.method == "GET":
-        return render_generator_page()
+        log_id = request.args.get("log_id", "").strip()
+        scan_token = request.args.get("scan_token", "").strip()
+        generated_entry = get_stored_log_entry(log_id) if log_id else None
+        return render_generator_page(
+            generated_entry=generated_entry,
+            generated_scan_token=scan_token,
+        )
 
     form_values = get_generator_form_values(request.form)
     try:
@@ -4983,11 +5076,16 @@ def generate_log_page():
     except ValueError as exc:
         return render_generator_page(form_values=form_values, error_message=str(exc))
 
-    return send_file(
-        log_buffer,
-        mimetype="application/jsonl",
-        as_attachment=True,
-        download_name=filename,
+    entry = store_generated_log(log_buffer, filename)
+    try:
+        scan_token, _entry = scan_stored_log(entry["id"])
+    except ValueError as exc:
+        return render_generator_page(form_values=form_values, error_message=str(exc))
+
+    return render_generator_page(
+        form_values=form_values,
+        generated_entry=entry,
+        generated_scan_token=scan_token,
     )
 
 
