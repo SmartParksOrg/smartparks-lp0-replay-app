@@ -1458,12 +1458,53 @@ SCRIPT_BLOCK = """
       const progressFill = container.querySelector("[data-replay-progress]");
       const progressText = container.querySelector("[data-replay-progress-text]");
       const metaTarget = container.querySelector("[data-replay-target]");
+      const etaText = container.querySelector("[data-replay-eta]");
       const logBody = document.querySelector("[data-replay-log-body]");
       const stopButton = document.querySelector("[data-stop-replay]");
       const resumeButton = document.querySelector("[data-resume-replay]");
+      const restartButton = document.querySelector("[data-restart-replay]");
+      let etaTimer = null;
 
       let received = 0;
       let done = false;
+
+      const formatDuration = (ms) => {
+        const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        if (hours > 0) {
+          return `${hours}:${formatTimeParts(minutes, 2)}:${formatTimeParts(seconds, 2)}`;
+        }
+        return `${minutes}:${formatTimeParts(seconds, 2)}`;
+      };
+
+      const updateEta = (data) => {
+        if (!etaText) return;
+        if (etaTimer) {
+          clearInterval(etaTimer);
+          etaTimer = null;
+        }
+        if (data.status !== "running") {
+          etaText.textContent = "ETA 0:00";
+          return;
+        }
+        const delayMs = Number(data.delay_ms) || 0;
+        const total = data.total || 0;
+        const processed = (data.sent || 0) + (data.errors || 0);
+        const remaining = Math.max(0, total - processed);
+        if (!delayMs || remaining === 0) {
+          etaText.textContent = "ETA 0:00";
+          return;
+        }
+        const targetTime = Date.now() + remaining * delayMs;
+        const render = () => {
+          const remainingMs = targetTime - Date.now();
+          etaText.textContent = `ETA ${formatDuration(remainingMs)}`;
+        };
+        render();
+        etaTimer = window.setInterval(render, 250);
+      };
 
       const updateStatus = (data) => {
         const total = data.total || 0;
@@ -1505,6 +1546,12 @@ SCRIPT_BLOCK = """
           resumeButton.disabled = !isStopped;
           resumeButton.classList.toggle("is-hidden", !isStopped);
         }
+        if (restartButton) {
+          const showRestart = data.status === "stopped" || data.status === "done";
+          restartButton.disabled = !showRestart;
+          restartButton.classList.toggle("is-hidden", !showRestart);
+        }
+        updateEta(data);
       };
 
       const appendLines = (lines) => {
@@ -1985,14 +2032,15 @@ REPLAY_HTML = """
                   {% if replay_status != "stopped" %}disabled{% endif %}>
             Resume Replay
           </button>
-          {% endif %}
-          {% if not replay_token or replay_status != "running" %}
-          <button type="submit" class="{% if replay_token and replay_status == "stopped" %}restart-replay-button{% else %}start-replay-button{% endif %}" data-replay-start {% if not scan_token %}disabled{% endif %}>
-            {% if replay_token and replay_status == "stopped" %}
+          <button type="submit" class="restart-replay-button{% if replay_status not in ["stopped", "done"] %} is-hidden{% endif %}"
+                  data-restart-replay formaction="{{ replay_url }}"
+                  {% if replay_status not in ["stopped", "done"] %}disabled{% endif %}>
             Restart Replay
-            {% else %}
+          </button>
+          {% endif %}
+          {% if not replay_token %}
+          <button type="submit" class="start-replay-button" data-replay-start {% if not scan_token %}disabled{% endif %}>
             Start Replay
-            {% endif %}
           </button>
           {% endif %}
         </div>
@@ -2007,6 +2055,7 @@ REPLAY_HTML = """
         <div class="progress-meta">
           <span data-replay-progress-text>Sent 0 of {{ replay_total }}</span>
           <span data-replay-target>Target -</span>
+          <span data-replay-eta>ETA -</span>
         </div>
       </div>
       {% endif %}
