@@ -65,9 +65,9 @@
 - Menu and pages now hide authenticated actions when logged out.
 - CSRF protection added for all POST forms.
 - Request size limits enforced via `MAX_CONTENT_LENGTH`.
+- Uploaded decoders gated by public-mode flags; uploads/execution can be disabled by default.
 
 ## Next Up
 1) Replay target allowlist and optional RFC1918-only restriction.
-2) Decoder execution sandboxing or curated decoder registry.
-3) Rate limits + per-user quotas.
-4) Audit logging for auth and file actions.
+2) Rate limits + per-user quotas.
+3) Audit logging for auth and file actions.

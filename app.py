@@ -30,6 +30,18 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 MAX_CONTENT_MB = int(os.environ.get("MAX_CONTENT_MB", "50"))
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_MB * 1024 * 1024
+
+
+def env_flag(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+PUBLIC_MODE = env_flag("PUBLIC_MODE", False)
+DECODER_UPLOADS_ENABLED = env_flag("DECODER_UPLOADS_ENABLED", not PUBLIC_MODE)
+DECODER_FILE_EXECUTION_ENABLED = env_flag("DECODER_FILE_EXECUTION_ENABLED", not PUBLIC_MODE)
 login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
@@ -3961,10 +3973,11 @@ def list_decoders():
         if filename.lower().endswith(".js"):
             decoder_id = f"builtin:{filename}"
             decoders.append({"id": decoder_id, "label": filename, "source": "builtin"})
-    for filename in sorted(os.listdir(DECODER_DIR)):
-        if filename.lower().endswith(".js"):
-            decoder_id = f"file:{filename}"
-            decoders.append({"id": decoder_id, "label": filename, "source": "upload"})
+    if DECODER_FILE_EXECUTION_ENABLED:
+        for filename in sorted(os.listdir(DECODER_DIR)):
+            if filename.lower().endswith(".js"):
+                decoder_id = f"file:{filename}"
+                decoders.append({"id": decoder_id, "label": filename, "source": "upload"})
     return decoders
 
 
@@ -4012,6 +4025,8 @@ def load_decoder(decoder_id):
         return load_js_decoder(path)
 
     if decoder_id.startswith("file:"):
+        if not DECODER_FILE_EXECUTION_ENABLED:
+            raise ValueError("Uploaded decoders are disabled.")
         filename = decoder_id.split("file:", 1)[1]
         if ".." in filename or "/" in filename or "\\" in filename:
             raise ValueError("Invalid decoder selection.")
@@ -4028,6 +4043,8 @@ def resolve_decoder_path(decoder_id):
             raise ValueError("Invalid decoder selection.")
         return os.path.join(BUILTIN_DECODER_DIR, filename)
     if decoder_id.startswith("file:"):
+        if not DECODER_FILE_EXECUTION_ENABLED:
+            raise ValueError("Uploaded decoders are disabled.")
         filename = decoder_id.split(":", 1)[1]
         if ".." in filename or "/" in filename or "\\" in filename:
             raise ValueError("Invalid decoder selection.")
@@ -4654,44 +4671,54 @@ def decoders_page():
     result_class = "success"
     action = request.form.get("action", "").strip()
     csrf_input = get_csrf_input()
+    uploads_enabled = DECODER_UPLOADS_ENABLED
+    file_execution_enabled = DECODER_FILE_EXECUTION_ENABLED
     if request.method == "POST" and action == "upload_decoder":
-        decoder_file = request.files.get("decoder_file")
-        if not decoder_file or not decoder_file.filename:
-            summary_lines = ["Please choose a decoder file to upload."]
+        if not uploads_enabled:
+            summary_lines = ["Decoder uploads are disabled."]
             result_class = "error"
         else:
-            filename = secure_filename(decoder_file.filename)
-            if not filename.lower().endswith(".js"):
-                summary_lines = ["Decoder file must be a .js file."]
+            decoder_file = request.files.get("decoder_file")
+            if not decoder_file or not decoder_file.filename:
+                summary_lines = ["Please choose a decoder file to upload."]
                 result_class = "error"
             else:
-                ensure_data_dirs()
-                path = os.path.join(DECODER_DIR, filename)
-                decoder_file.save(path)
-                summary_lines = [f"Decoder uploaded: {filename}"]
-                result_class = "success"
-    if request.method == "POST" and action == "delete_decoder":
-        decoder_id = request.form.get("delete_decoder_id", "").strip()
-        if not decoder_id:
-            summary_lines = ["Select a decoder to remove."]
-            result_class = "error"
-        elif not decoder_id.startswith("file:"):
-            summary_lines = ["Built-in decoders cannot be removed."]
-            result_class = "error"
-        else:
-            try:
-                path = resolve_decoder_path(decoder_id)
-            except ValueError as exc:
-                summary_lines = [str(exc)]
-                result_class = "error"
-            else:
-                if os.path.exists(path):
-                    os.remove(path)
-                    summary_lines = ["Decoder removed."]
-                    result_class = "success"
-                else:
-                    summary_lines = ["Decoder file not found."]
+                filename = secure_filename(decoder_file.filename)
+                if not filename.lower().endswith(".js"):
+                    summary_lines = ["Decoder file must be a .js file."]
                     result_class = "error"
+                else:
+                    ensure_data_dirs()
+                    path = os.path.join(DECODER_DIR, filename)
+                    decoder_file.save(path)
+                    summary_lines = [f"Decoder uploaded: {filename}"]
+                    result_class = "success"
+    if request.method == "POST" and action == "delete_decoder":
+        if not uploads_enabled:
+            summary_lines = ["Decoder management is disabled."]
+            result_class = "error"
+        else:
+            decoder_id = request.form.get("delete_decoder_id", "").strip()
+            if not decoder_id:
+                summary_lines = ["Select a decoder to remove."]
+                result_class = "error"
+            elif not decoder_id.startswith("file:"):
+                summary_lines = ["Built-in decoders cannot be removed."]
+                result_class = "error"
+            else:
+                try:
+                    path = resolve_decoder_path(decoder_id)
+                except ValueError as exc:
+                    summary_lines = [str(exc)]
+                    result_class = "error"
+                else:
+                    if os.path.exists(path):
+                        os.remove(path)
+                        summary_lines = ["Decoder removed."]
+                        result_class = "success"
+                    else:
+                        summary_lines = ["Decoder file not found."]
+                        result_class = "error"
 
     decoders = list_decoders()
     if decoders:
@@ -4706,7 +4733,7 @@ def decoders_page():
                 actions_html = ""
             else:
                 delete_button = ""
-                if decoder["id"].startswith("file:"):
+                if decoder["id"].startswith("file:") and uploads_enabled:
                     delete_button = (
                         f"<button type=\"button\" class=\"danger-button danger-text\" "
                         f"data-delete-decoder=\"{decoder_id}\" "
@@ -4740,20 +4767,12 @@ def decoders_page():
         summary_items = "".join(f"<div>{html.escape(line)}</div>" for line in summary_lines)
         result_html = f"<div class=\"result {result_class}\">{summary_items}</div>"
 
-    body_html = f"""
-      {result_html}
-      <form method="POST" action="{url_for('decoders_page')}" data-decoder-delete-form>
-        {csrf_input}
-        <input type="hidden" name="action" value="delete_decoder">
-        <input type="hidden" name="delete_decoder_id" value="" data-decoder-delete-input>
-      </form>
-      <div class="field-group">
-        <div class="field-header">
-          <label>Available decoders</label>
-        </div>
-        <div class="hint">Click a decoder to review its JavaScript.</div>
-        {decoder_html}
-      </div>
+    decoder_notice = ""
+    if not file_execution_enabled:
+        decoder_notice = "<div class=\"hint\">Uploaded decoders are disabled for this deployment.</div>"
+    upload_section = ""
+    if uploads_enabled:
+        upload_section = f"""
       <div class="section-divider"></div>
       <form method="POST" action="{url_for('decoders_page')}" enctype="multipart/form-data">
         {csrf_input}
@@ -4769,6 +4788,26 @@ def decoders_page():
           <button type="submit">Upload decoder</button>
         </div>
       </form>
+        """
+    else:
+        upload_section = "<div class=\"section-divider\"></div><div class=\"hint\">Decoder uploads are disabled for this deployment.</div>"
+
+    body_html = f"""
+      {result_html}
+      <form method="POST" action="{url_for('decoders_page')}" data-decoder-delete-form>
+        {csrf_input}
+        <input type="hidden" name="action" value="delete_decoder">
+        <input type="hidden" name="delete_decoder_id" value="" data-decoder-delete-input>
+      </form>
+      <div class="field-group">
+        <div class="field-header">
+          <label>Available decoders</label>
+        </div>
+        <div class="hint">Click a decoder to review its JavaScript.</div>
+        {decoder_notice}
+        {decoder_html}
+      </div>
+      {upload_section}
     """
     return render_simple_page(
         title="Decoders",
@@ -5552,22 +5591,26 @@ def decode():
         )
 
     if action == "upload_decoder":
-        decoder_file = request.files.get("decoder_file")
-        if not decoder_file or not decoder_file.filename:
-            summary_lines = ["Please choose a decoder file to upload."]
+        if not DECODER_UPLOADS_ENABLED:
+            summary_lines = ["Decoder uploads are disabled."]
             result_class = "error"
         else:
-            filename = secure_filename(decoder_file.filename)
-            if not filename.lower().endswith(".js"):
-                summary_lines = ["Decoder file must be a .js file."]
+            decoder_file = request.files.get("decoder_file")
+            if not decoder_file or not decoder_file.filename:
+                summary_lines = ["Please choose a decoder file to upload."]
                 result_class = "error"
             else:
-                ensure_data_dirs()
-                path = os.path.join(DECODER_DIR, filename)
-                decoder_file.save(path)
-                summary_lines = [f"Decoder uploaded: {filename}"]
-                result_class = "success"
-                decoders = list_decoders()
+                filename = secure_filename(decoder_file.filename)
+                if not filename.lower().endswith(".js"):
+                    summary_lines = ["Decoder file must be a .js file."]
+                    result_class = "error"
+                else:
+                    ensure_data_dirs()
+                    path = os.path.join(DECODER_DIR, filename)
+                    decoder_file.save(path)
+                    summary_lines = [f"Decoder uploaded: {filename}"]
+                    result_class = "success"
+                    decoders = list_decoders()
 
     if action == "decode":
         if missing_keys:
