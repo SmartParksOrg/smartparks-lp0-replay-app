@@ -107,11 +107,13 @@ STYLE_BLOCK = """
     .menu-toggle {
       display: inline-flex;
       align-items: center;
-      gap: 0.6rem;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
       border: 1px solid var(--border);
       background: #fff;
-      border-radius: 999px;
-      padding: 0.4rem 0.9rem;
+      border-radius: 12px;
+      padding: 0;
       cursor: pointer;
       font-weight: 600;
       transition: border-color 0.2s, background 0.2s;
@@ -122,7 +124,7 @@ STYLE_BLOCK = """
     }
 
     .menu-toggle .menu-label {
-      font-size: 0.9rem;
+      display: none;
     }
 
     .menu-toggle .bar {
@@ -1889,7 +1891,7 @@ NAV_HTML = """
         <span class="bar"></span>
         <span class="bar"></span>
       </span>
-      <span class="menu-label">Menu</span>
+      <span class="menu-label" aria-hidden="true">Menu</span>
     </button>
   </header>
   <nav id="site-menu" class="menu-panel" data-menu-panel hidden>
