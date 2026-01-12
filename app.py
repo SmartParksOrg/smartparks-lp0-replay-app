@@ -2086,6 +2086,28 @@ SCRIPT_BLOCK = """
         });
       }
 
+      document.querySelectorAll(".field-controls").forEach((controls) => {
+        if (passwordModal && passwordModal.contains(controls)) {
+          return;
+        }
+        const input = controls.querySelector("[data-password-input]");
+        if (!input) return;
+        const generateBtn = controls.querySelector("[data-password-generate]");
+        const copyBtn = controls.querySelector("[data-password-copy]");
+        generateBtn?.addEventListener("click", () => {
+          input.value = generatePassword(16);
+        });
+        copyBtn?.addEventListener("click", () => {
+          input.select();
+          input.setSelectionRange(0, 99999);
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(input.value || "");
+          } else {
+            document.execCommand("copy");
+          }
+        });
+      });
+
       document.querySelectorAll("[data-user-name]").forEach((el) => {
         const name = el.dataset.userName || "";
         let hash = 0;
@@ -2633,7 +2655,13 @@ CHANGE_PASSWORD_HTML = """
         </div>
         <div>
           <label for="new_password">New password</label>
-          <input id="new_password" name="new_password" type="password" autocomplete="new-password" required>
+          <div class="field-controls">
+            <input id="new_password" name="new_password" type="text" autocomplete="new-password" data-password-input required>
+            <div class="field-tools">
+              <button type="button" class="icon-button" data-password-generate title="Generate password">↻</button>
+              <button type="button" class="icon-button" data-password-copy title="Copy password">⧉</button>
+            </div>
+          </div>
         </div>
         <div>
           <label for="confirm_password">Confirm new password</label>
@@ -4254,6 +4282,7 @@ def login():
 @login_required
 def change_password():
     error_message = ""
+    success_message = ""
     if request.method == "POST":
         current_password = request.form.get("current_password", "")
         new_password = request.form.get("new_password", "")
