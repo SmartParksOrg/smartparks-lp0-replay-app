@@ -1721,6 +1721,11 @@ REPLAY_HTML = """
           <input id="port" name="port" type="number" value="{{ form_values.port }}">
           <div class="hint">The default Semtech UDP port is 1700.</div>
         </div>
+        <div>
+          <label for="delay_ms">Delay between packets (ms)</label>
+          <input id="delay_ms" name="delay_ms" type="number" min="0" step="1" value="{{ form_values.delay_ms }}">
+          <div class="hint">Default is 500 milliseconds.</div>
+        </div>
         {% if scan_token %}
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         {% endif %}
@@ -1746,12 +1751,13 @@ REPLAY_HTML = """
           </label>
         </div>
         <div style="overflow-x: auto;">
-          <table class="log-table" data-sortable-table data-numeric-keys="index,freq,size">
+          <table class="log-table" data-sortable-table data-numeric-keys="index,fcnt,freq,size">
             <thead>
               <tr>
                 <th><button type="button" data-sort-key="index">#</button></th>
                 <th><button type="button" data-sort-key="status">Status</button></th>
                 <th><button type="button" data-sort-key="gateway">Gateway EUI</button></th>
+                <th><button type="button" data-sort-key="fcnt">FCnt</button></th>
                 <th><button type="button" data-sort-key="freq">Frequency</button></th>
                 <th><button type="button" data-sort-key="size">Size</button></th>
                 <th><button type="button" data-sort-key="message">Message</button></th>
@@ -1763,12 +1769,14 @@ REPLAY_HTML = """
                   data-index="{{ log_line.index }}"
                   data-status="{{ log_line.status }}"
                   data-gateway="{{ log_line.gateway or '' }}"
+                  data-fcnt="{{ log_line.fcnt or '' }}"
                   data-freq="{{ log_line.freq or '' }}"
                   data-size="{{ log_line.size or '' }}"
                   data-message="{{ (log_line.message or '') | e }}">
                 <td>{{ log_line.index }}</td>
                 <td>{{ log_line.status }}</td>
                 <td>{{ log_line.gateway or "-" }}</td>
+                <td>{{ log_line.fcnt or "-" }}</td>
                 <td>{{ log_line.freq or "-" }}</td>
                 <td>{{ log_line.size or "-" }}</td>
                 <td>{{ log_line.message }}</td>
@@ -3009,10 +3017,12 @@ def render_main_page(
     values = {
         "host": "127.0.0.1",
         "port": "1700",
+        "delay_ms": "500",
     }
     if form_values:
         values["host"] = form_values.get("host", values["host"])
         values["port"] = form_values.get("port", values["port"])
+        values["delay_ms"] = form_values.get("delay_ms", values["delay_ms"])
     logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
         HTML,
@@ -3049,10 +3059,12 @@ def render_replay_page(
     values = {
         "host": "127.0.0.1",
         "port": "1700",
+        "delay_ms": "500",
     }
     if form_values:
         values["host"] = form_values.get("host", values["host"])
         values["port"] = form_values.get("port", values["port"])
+        values["delay_ms"] = form_values.get("delay_ms", values["delay_ms"])
     logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
         REPLAY_HTML,
@@ -3728,6 +3740,7 @@ def replay():
 
     host = request.form.get("host", "").strip() or "127.0.0.1"
     port_raw = request.form.get("port", "1700").strip()
+    delay_raw = request.form.get("delay_ms", "500").strip()
 
     try:
         port = int(port_raw)
@@ -3739,6 +3752,21 @@ def replay():
             summary_lines=summary_lines,
             summary_class="success",
             result_lines=[f"Invalid UDP port: {port_raw}"],
+            result_class="error",
+        )
+
+    try:
+        delay_ms = int(delay_raw)
+        if delay_ms < 0:
+            raise ValueError("delay must be non-negative")
+    except ValueError:
+        return render_replay_page(
+            form_values=request.form,
+            scan_token=scan_token,
+            selected_filename=selected_filename,
+            summary_lines=summary_lines,
+            summary_class="success",
+            result_lines=[f"Invalid delay in milliseconds: {delay_raw}"],
             result_class="error",
         )
 
@@ -3759,7 +3787,7 @@ def replay():
     errors = 0
     log_lines = []
 
-    for rec in parsed:
+    for idx, rec in enumerate(parsed):
         gateway_eui = rec["gateway_eui"]
         rxpk = rec["rxpk"]
 
@@ -3773,11 +3801,13 @@ def replay():
             except Exception:
                 rxpk_serialized = str(rxpk) if rxpk is not None else ""
             rxpk_preview = rxpk_serialized[:100] + "..." if len(rxpk_serialized) > 100 else rxpk_serialized
+            fcnt = rxpk.get("fcnt", "?")
             log_lines.append(
                 {
                     "index": total + errors,
                     "status": "Error",
                     "gateway": gateway_eui,
+                    "fcnt": fcnt,
                     "freq": rxpk.get("freq"),
                     "size": rxpk.get("size"),
                     "message": f"Build error: {e} -- {rxpk_preview}",
@@ -3786,9 +3816,12 @@ def replay():
             )
             continue
 
+        send_attempted = False
         try:
             sock.sendto(packet, (host, port))
+            send_attempted = True
             total += 1
+            fcnt = rxpk.get("fcnt", "?")
             freq = rxpk.get("freq", "?")
             size = rxpk.get("size", len(packet))
             datr = rxpk.get("datr", "?")
@@ -3802,6 +3835,7 @@ def replay():
                     "index": total + errors,
                     "status": "Sent",
                     "gateway": gateway_eui,
+                    "fcnt": fcnt,
                     "freq": freq,
                     "size": size,
                     "message": f"{time_str} datr={datr}, rssi={rssi} dBm, lsnr={lsnr} dB, data={payload_preview}",
@@ -3809,6 +3843,7 @@ def replay():
                 }
             )
         except Exception as e:
+            send_attempted = True
             errors += 1
             print("Send error:", e)
             try:
@@ -3816,11 +3851,13 @@ def replay():
             except Exception:
                 rxpk_serialized = str(rxpk) if rxpk is not None else ""
             rxpk_preview = rxpk_serialized[:100] + "..." if len(rxpk_serialized) > 100 else rxpk_serialized
+            fcnt = rxpk.get("fcnt", "?")
             log_lines.append(
                 {
                     "index": total + errors,
                     "status": "Error",
                     "gateway": gateway_eui,
+                    "fcnt": fcnt,
                     "freq": rxpk.get("freq"),
                     "size": rxpk.get("size"),
                     "message": f"Send error: {e} -- {rxpk_preview}",
@@ -3828,12 +3865,16 @@ def replay():
                 }
             )
 
+        if send_attempted and delay_ms > 0 and idx < len(parsed) - 1:
+            time.sleep(delay_ms / 1000.0)
+
     sock.close()
 
     result_lines = [
         "Replay done.",
         f"Sent={total}, errors={errors}",
         f"Target={host}:{port}",
+        f"Delay={delay_ms} ms",
     ]
     return render_replay_page(
         form_values=request.form,
