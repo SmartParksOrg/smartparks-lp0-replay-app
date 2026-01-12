@@ -3801,7 +3801,10 @@ def replay():
             except Exception:
                 rxpk_serialized = str(rxpk) if rxpk is not None else ""
             rxpk_preview = rxpk_serialized[:100] + "..." if len(rxpk_serialized) > 100 else rxpk_serialized
-            fcnt = rxpk.get("fcnt", "?")
+            try:
+                fcnt = parse_uplink(rxpk)["fcnt"]
+            except Exception:
+                fcnt = ""
             log_lines.append(
                 {
                     "index": total + errors,
@@ -3821,7 +3824,10 @@ def replay():
             sock.sendto(packet, (host, port))
             send_attempted = True
             total += 1
-            fcnt = rxpk.get("fcnt", "?")
+            try:
+                fcnt = parse_uplink(rxpk)["fcnt"]
+            except Exception:
+                fcnt = ""
             freq = rxpk.get("freq", "?")
             size = rxpk.get("size", len(packet))
             datr = rxpk.get("datr", "?")
@@ -3851,7 +3857,10 @@ def replay():
             except Exception:
                 rxpk_serialized = str(rxpk) if rxpk is not None else ""
             rxpk_preview = rxpk_serialized[:100] + "..." if len(rxpk_serialized) > 100 else rxpk_serialized
-            fcnt = rxpk.get("fcnt", "?")
+            try:
+                fcnt = parse_uplink(rxpk)["fcnt"]
+            except Exception:
+                fcnt = ""
             log_lines.append(
                 {
                     "index": total + errors,
