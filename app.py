@@ -22,6 +22,7 @@ from flask_login import (
     login_user,
     logout_user,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 import make_test_log
@@ -48,6 +49,9 @@ USER_MAX_LOG_BYTES = USER_MAX_LOG_MB * 1024 * 1024
 AUDIT_LOG_MAX_MB = int(os.environ.get("AUDIT_LOG_MAX_MB", "5"))
 AUDIT_LOG_MAX_BYTES = AUDIT_LOG_MAX_MB * 1024 * 1024
 AUDIT_LOG_BACKUPS = int(os.environ.get("AUDIT_LOG_BACKUPS", "5"))
+SESSION_COOKIE_SECURE = env_flag("SESSION_COOKIE_SECURE", PUBLIC_MODE)
+SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
+TRUST_PROXY = env_flag("TRUST_PROXY", False)
 RATE_LIMIT_STATE = {}
 RATE_LIMITS = {
     "scan": (int(os.environ.get("RATE_LIMIT_SCAN_PER_MIN", "12")), 60),
@@ -68,7 +72,7 @@ REPLAY_CACHE_TTL = 30 * 60
 REPLAY_LOCK = threading.Lock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 DECODER_DIR = os.path.join(DATA_DIR, "decoders")
 BUILTIN_DECODER_DIR = os.path.join(BASE_DIR, "decoders")
@@ -77,6 +81,12 @@ UPLOAD_INDEX_PATH = os.path.join(DATA_DIR, "uploads.json")
 AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 AUDIT_LOG_PATH = os.path.join(DATA_DIR, "audit.log")
 CSRF_SESSION_KEY = "_csrf_token"
+
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = SESSION_COOKIE_SECURE
+app.config["SESSION_COOKIE_SAMESITE"] = SESSION_COOKIE_SAMESITE
+if TRUST_PROXY:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
 
 class AppUser(UserMixin):
     def __init__(self, user_id):
@@ -3520,8 +3530,9 @@ def clean_hex(value: str) -> str:
 
 
 def ensure_data_dirs():
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    os.makedirs(DECODER_DIR, exist_ok=True)
+    os.makedirs(DATA_DIR, mode=0o700, exist_ok=True)
+    os.makedirs(UPLOAD_DIR, mode=0o700, exist_ok=True)
+    os.makedirs(DECODER_DIR, mode=0o700, exist_ok=True)
     os.makedirs(BUILTIN_DECODER_DIR, exist_ok=True)
 
 
@@ -6226,4 +6237,7 @@ def build_push_data(gateway_eui_hex: str, rxpk: dict) -> bytes:
 
 if __name__ == "__main__":
     # Listen on all interfaces on port 18080
-    app.run(host="0.0.0.0", port=18080, debug=True)
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "18080"))
+    debug = env_flag("DEBUG", False)
+    app.run(host=host, port=port, debug=debug)
