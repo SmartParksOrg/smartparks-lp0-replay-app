@@ -70,6 +70,15 @@ DECODE_CACHE_TTL = 30 * 60
 REPLAY_CACHE = {}
 REPLAY_CACHE_TTL = 30 * 60
 REPLAY_LOCK = threading.Lock()
+REPLAY_RXPK_OVERRIDES = {
+    "freq": 868.1,
+    "chan": 0,
+    "rfch": 0,
+    "stat": 1,
+    "modu": "LORA",
+    "datr": "SF9BW125",
+    "codr": "4/5",
+}
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
@@ -2595,6 +2604,15 @@ REPLAY_HTML = """
           <input id="delay_ms" name="delay_ms" type="number" min="0" step="1" value="{{ form_values.delay_ms }}" {% if replay_token and replay_status == "running" %}disabled{% endif %}>
           <div class="hint">Default is 500 milliseconds.</div>
         </div>
+        <div>
+          <label class="checkbox-row">
+            <input id="override_rxpk" name="override_rxpk" type="checkbox" value="1"
+                   {% if form_values.override_rxpk %}checked{% endif %}
+                   {% if replay_token and replay_status == "running" %}disabled{% endif %}>
+            Override rxpk values for server compatibility
+          </label>
+          <div class="hint">Uses freq=868.1, chan=0, rfch=0, stat=1, modu=LORA, datr=SF9BW125, codr=4/5.</div>
+        </div>
         {% if scan_token %}
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         {% endif %}
@@ -3993,7 +4011,17 @@ def resolve_back_url(default_url):
     return referrer
 
 
-def store_replay_job(total, host, port, delay_ms, start_index=0, sent=0, errors=0, log_lines=None):
+def store_replay_job(
+    total,
+    host,
+    port,
+    delay_ms,
+    start_index=0,
+    sent=0,
+    errors=0,
+    log_lines=None,
+    override_rxpk=False,
+):
     prune_replay_cache()
     token = secrets.token_urlsafe(16)
     REPLAY_CACHE[token] = {
@@ -4008,6 +4036,7 @@ def store_replay_job(total, host, port, delay_ms, start_index=0, sent=0, errors=
         "start_index": start_index,
         "current_index": start_index,
         "log_lines": list(log_lines or []),
+        "override_rxpk": bool(override_rxpk),
     }
     return token
 
@@ -4283,11 +4312,17 @@ def render_replay_page(
         "host": "127.0.0.1",
         "port": "1700",
         "delay_ms": "500",
+        "override_rxpk": False,
     }
     if form_values:
         values["host"] = form_values.get("host", values["host"])
         values["port"] = form_values.get("port", values["port"])
         values["delay_ms"] = form_values.get("delay_ms", values["delay_ms"])
+        override_raw = form_values.get("override_rxpk", values["override_rxpk"])
+        if isinstance(override_raw, str):
+            values["override_rxpk"] = override_raw.strip().lower() in ("1", "true", "yes", "on")
+        else:
+            values["override_rxpk"] = bool(override_raw)
     logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
         REPLAY_HTML,
@@ -5191,6 +5226,9 @@ def run_replay_job(token, parsed, host, port, delay_ms, start_index=0, sent=0, e
                 break
             gateway_eui = rec["gateway_eui"]
             rxpk = rec["rxpk"]
+            if entry.get("override_rxpk"):
+                # Copy so we do not mutate cached scan data.
+                rxpk = {**rxpk, **REPLAY_RXPK_OVERRIDES}
             send_attempted = False
 
             try:
@@ -5549,6 +5587,7 @@ def replay_resume():
     host = entry.get("host", "127.0.0.1")
     port = int(entry.get("port", 1700))
     delay_ms = int(entry.get("delay_ms", 500))
+    override_rxpk = bool(entry.get("override_rxpk", False))
     sent = int(entry.get("sent", 0))
     errors = int(entry.get("errors", 0))
     log_lines = list(entry.get("log_lines", []))
@@ -5562,6 +5601,7 @@ def replay_resume():
         sent=sent,
         errors=errors,
         log_lines=log_lines,
+        override_rxpk=override_rxpk,
     )
     thread = threading.Thread(
         target=run_replay_job,
@@ -5617,6 +5657,7 @@ def replay():
                 "host": replay_job.get("host", "127.0.0.1"),
                 "port": str(replay_job.get("port", "1700")),
                 "delay_ms": str(replay_job.get("delay_ms", "500")),
+                "override_rxpk": replay_job.get("override_rxpk", False),
             }
             replay_total = replay_job.get("total", 0)
             replay_status = replay_job.get("status", "")
@@ -5653,6 +5694,7 @@ def replay():
     host = request.form.get("host", "").strip() or "127.0.0.1"
     port_raw = request.form.get("port", "1700").strip()
     delay_raw = request.form.get("delay_ms", "500").strip()
+    override_rxpk = request.form.get("override_rxpk", "").strip().lower() in ("1", "true", "yes", "on")
 
     try:
         port = int(port_raw)
@@ -5696,10 +5738,17 @@ def replay():
             back_url=back_url,
         )
 
-    job_token = store_replay_job(len(parsed), host, port, delay_ms)
+    job_token = store_replay_job(len(parsed), host, port, delay_ms, override_rxpk=override_rxpk)
     audit_log(
         "replay_started",
-        {"replay_token": job_token, "scan_token": scan_token, "host": host, "port": port, "delay_ms": delay_ms},
+        {
+            "replay_token": job_token,
+            "scan_token": scan_token,
+            "host": host,
+            "port": port,
+            "delay_ms": delay_ms,
+            "override_rxpk": override_rxpk,
+        },
     )
     thread = threading.Thread(
         target=run_replay_job,
