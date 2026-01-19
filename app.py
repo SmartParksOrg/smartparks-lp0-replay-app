@@ -322,6 +322,7 @@ def load_user(user_id):
 
 
 STYLE_BLOCK = """
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
   <style>
     :root {
       color-scheme: light;
@@ -403,7 +404,13 @@ STYLE_BLOCK = """
       padding: 0;
       cursor: pointer;
       font-weight: 600;
+      color: var(--accent);
       transition: border-color 0.2s, background 0.2s;
+    }
+
+    .menu-toggle:hover {
+      background: #f8fafc;
+      border-color: var(--accent);
     }
 
     .top-actions {
@@ -488,6 +495,29 @@ STYLE_BLOCK = """
       font-weight: 600;
       border: 1px solid transparent;
       transition: border-color 0.2s, color 0.2s, background 0.2s;
+      gap: 0.4rem;
+    }
+
+    .menu-link .material-icons {
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .menu-toggle .material-icons {
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .page-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .page-title .material-icons {
+      font-size: 24px;
+      line-height: 1;
+      color: var(--accent);
     }
 
     .menu-link:hover {
@@ -564,6 +594,10 @@ STYLE_BLOCK = """
       font-weight: 600;
     }
 
+    .devaddr-label {
+      color: var(--accent);
+    }
+
     .field-controls {
       position: relative;
       display: flex;
@@ -600,6 +634,11 @@ STYLE_BLOCK = """
       transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
 
+    .icon-button .material-icons {
+      font-size: 18px;
+      line-height: 1;
+    }
+
     .icon-button:hover {
       border-color: var(--accent);
       background: rgba(37, 99, 235, 0.05);
@@ -620,6 +659,11 @@ STYLE_BLOCK = """
       color: var(--accent);
       cursor: pointer;
       transition: border-color 0.2s, color 0.2s, background 0.2s;
+    }
+
+    .toggle-visibility .material-icons {
+      font-size: 18px;
+      line-height: 1;
     }
 
     .toggle-visibility:hover {
@@ -996,6 +1040,7 @@ STYLE_BLOCK = """
       color: var(--accent);
       font-weight: 600;
       text-decoration: none;
+      gap: 0.45rem;
       transition: border-color 0.2s, color 0.2s;
     }
 
@@ -1003,6 +1048,13 @@ STYLE_BLOCK = """
       background: #f8fafc;
       border-color: var(--accent);
       color: var(--accent-hover);
+    }
+
+    .secondary-button.icon-only {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border-radius: 12px;
     }
 
     .danger-button {
@@ -1089,7 +1141,20 @@ STYLE_BLOCK = """
       font-weight: 600;
       text-decoration: none;
       border: 1px solid transparent;
+      gap: 0.45rem;
       transition: background 0.2s, transform 0.2s;
+    }
+
+    .primary-button .material-icons,
+    .secondary-button .material-icons,
+    .danger-button.danger-text .material-icons {
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .danger-button .material-icons {
+      font-size: 18px;
+      line-height: 1;
     }
 
     .primary-button:hover {
@@ -1605,8 +1670,14 @@ STYLE_BLOCK = """
     .remove-cell {
       display: flex;
       justify-content: flex-end;
-      align-items: flex-end;
-      padding-bottom: 0.2rem;
+      align-items: flex-start;
+      padding-top: 1.55rem;
+      padding-bottom: 0;
+    }
+
+    .remove-cell .danger-button {
+      width: 42px;
+      height: 42px;
     }
 
     @media (max-width: 1100px) {
@@ -1779,6 +1850,22 @@ STYLE_BLOCK = """
       margin-top: 0.8rem;
     }
 
+    .map-panel.map-expanded {
+      position: fixed;
+      top: 2.5rem;
+      left: 1.5rem;
+      right: 1.5rem;
+      bottom: 1.5rem;
+      width: auto;
+      height: auto;
+      min-height: 0;
+      border-radius: 18px;
+      margin-top: 0;
+      z-index: 2000;
+      background: #e2e8f0;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+    }
+
     .map-panel .map-svg {
       width: 100%;
       height: 100%;
@@ -1855,6 +1942,34 @@ STYLE_BLOCK = """
       overflow: visible;
     }
 
+    .map-toggle-button {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 0;
+      background: transparent;
+      color: #0f172a;
+      font-size: 1rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .map-toggle-button:hover {
+      background: rgba(37, 99, 235, 0.12);
+    }
+
+    .map-toggle-button.is-active {
+      background: rgba(37, 99, 235, 0.18);
+      color: #1d4ed8;
+    }
+
+    .map-toggle-button .material-icons {
+      font-size: 20px;
+      line-height: 1;
+    }
+
     .leaflet-zoom-animated {
       transform-origin: 0 0;
     }
@@ -1865,13 +1980,16 @@ STYLE_BLOCK = """
 
     .leaflet-control-container {
       position: absolute;
+      inset: 0;
       z-index: 1000;
       pointer-events: none;
     }
 
-    .leaflet-control {
-      position: relative;
-      pointer-events: auto;
+    .leaflet-top,
+    .leaflet-bottom {
+      position: absolute;
+      z-index: 1000;
+      pointer-events: none;
     }
 
     .leaflet-top {
@@ -1888,6 +2006,20 @@ STYLE_BLOCK = """
 
     .leaflet-right {
       right: 0;
+    }
+
+    .leaflet-control {
+      margin: 10px;
+      pointer-events: auto;
+    }
+
+    .leaflet-bar {
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(15, 23, 42, 0.18);
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid rgba(15, 23, 42, 0.2);
+      display: inline-block;
     }
 
     .map-point {
@@ -1956,6 +2088,71 @@ STYLE_BLOCK = """
       height: 360px;
       width: 100%;
       margin-top: 0.8rem;
+      position: relative;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+
+    .chart-wrapper.chart-expanded {
+      position: fixed;
+      top: 2.5rem;
+      left: 1rem;
+      right: 1rem;
+      bottom: 1.5rem;
+      height: auto;
+      width: calc(100% - 2rem);
+      z-index: 1900;
+      margin-top: 0;
+      border-radius: 18px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+    }
+
+    .chart-toggle-button {
+      position: absolute;
+      bottom: 0.75rem;
+      right: 0.75rem;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid rgba(15, 23, 42, 0.2);
+      background: rgba(255, 255, 255, 0.95);
+      color: #0f172a;
+      font-size: 1rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+      z-index: 2;
+    }
+
+    .chart-toggle-button.chart-zoom-reset {
+      right: 3.8rem;
+    }
+
+    .chart-toggle-button.chart-toggle-line {
+      right: 7.05rem;
+    }
+
+    .chart-toggle-button.chart-toggle-points {
+      right: 10.3rem;
+    }
+
+    .chart-toggle-button.is-active {
+      background: rgba(37, 99, 235, 0.18);
+      color: #1d4ed8;
+    }
+
+    .chart-toggle-button:hover {
+      background: #ffffff;
+    }
+
+    .chart-toggle-button .material-icons {
+      font-size: 20px;
+      line-height: 1;
     }
 
     #stats_panel {
@@ -2982,16 +3179,12 @@ NAV_HTML = """
       <span class="user-pill">Signed in as {{ current_user.id }}</span>
       <form method="POST" action="{{ logout_url }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="secondary-button">Log out</button>
+        <button type="submit" class="secondary-button icon-only" title="Log out" aria-label="Log out"><span class="material-icons" aria-hidden="true">logout</span></button>
       </form>
       {% endif %}
       {% if show_menu %}
       <button type="button" class="menu-toggle" data-menu-toggle aria-expanded="false" aria-controls="site-menu">
-        <span class="bars" aria-hidden="true">
-          <span class="bar"></span>
-          <span class="bar"></span>
-          <span class="bar"></span>
-        </span>
+        <span class="material-icons" aria-hidden="true">menu</span>
         <span class="menu-label" aria-hidden="true">Menu</span>
       </button>
       {% endif %}
@@ -2999,13 +3192,13 @@ NAV_HTML = """
   </header>
   {% if show_menu %}
   <nav id="site-menu" class="menu-panel" data-menu-panel hidden>
-    <a class="menu-link {% if active_page == 'start' %}active{% endif %}" href="{{ start_url }}">Start</a>
-    <a class="menu-link {% if active_page == 'devices' %}active{% endif %}" href="{{ devices_url }}">Devices</a>
-    <a class="menu-link {% if active_page == 'users' %}active{% endif %}" href="{{ users_url }}">Users</a>
-    <a class="menu-link {% if active_page == 'files' %}active{% endif %}" href="{{ files_url }}">Files</a>
-    <a class="menu-link {% if active_page == 'decoders' %}active{% endif %}" href="{{ decoders_url }}">Decoders</a>
-    <a class="menu-link {% if active_page == 'integrations' %}active{% endif %}" href="{{ integrations_url }}">Integrations</a>
-    <a class="menu-link {% if active_page == 'about' %}active{% endif %}" href="{{ about_url }}">About</a>
+    <a class="menu-link {% if active_page == 'start' %}active{% endif %}" href="{{ start_url }}"><span class="material-icons" aria-hidden="true">home</span>Start</a>
+    <a class="menu-link {% if active_page == 'devices' %}active{% endif %}" href="{{ devices_url }}"><span class="material-icons" aria-hidden="true">memory</span>Devices</a>
+    <a class="menu-link {% if active_page == 'users' %}active{% endif %}" href="{{ users_url }}"><span class="material-icons" aria-hidden="true">group</span>Users</a>
+    <a class="menu-link {% if active_page == 'files' %}active{% endif %}" href="{{ files_url }}"><span class="material-icons" aria-hidden="true">folder</span>Files</a>
+    <a class="menu-link {% if active_page == 'decoders' %}active{% endif %}" href="{{ decoders_url }}"><span class="material-icons" aria-hidden="true">code</span>Decoders</a>
+    <a class="menu-link {% if active_page == 'integrations' %}active{% endif %}" href="{{ integrations_url }}"><span class="material-icons" aria-hidden="true">hub</span>Integrations</a>
+    <a class="menu-link {% if active_page == 'about' %}active{% endif %}" href="{{ about_url }}"><span class="material-icons" aria-hidden="true">info</span>About</a>
   </nav>
   {% endif %}
 """
@@ -3024,13 +3217,12 @@ HTML = """
     {{ nav_html|safe }}
 
     <div class="card">
-      <h1>Start</h1>
+      <h1 class="page-title"><span class="material-icons" aria-hidden="true">home</span>Start</h1>
       <p class="subtitle">Upload a log file or pick a stored log file to scan and continue.</p>
 
       <form method="POST" action="{{ scan_url }}" enctype="multipart/form-data" data-scan-url="{{ scan_url }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div>
-          <label for="logfile">Logfile</label>
           <div class="logfile-options">
             <div class="logfile-option">
               <h3>Upload a log file</h3>
@@ -3057,7 +3249,7 @@ HTML = """
         </div>
 
         <div class="form-actions">
-          <button type="submit">Scan logfile</button>
+          <button type="submit" class="primary-button"><span class="material-icons" aria-hidden="true">search</span>Scan logfile</button>
         </div>
 
         {% if result_lines %}
@@ -3073,8 +3265,8 @@ HTML = """
       <div class="next-steps">
         <h2>Next steps</h2>
         <div class="action-grid">
-          <a class="primary-button" href="{{ decode_url }}?scan_token={{ scan_token }}">Decrypt &amp; decode</a>
-          <a class="secondary-button" href="{{ replay_page_url }}?scan_token={{ scan_token }}">Replay</a>
+          <a class="primary-button" href="{{ decode_url }}?scan_token={{ scan_token }}"><span class="material-icons" aria-hidden="true">lock_open</span>Decrypt &amp; decode</a>
+          <a class="secondary-button" href="{{ replay_page_url }}?scan_token={{ scan_token }}"><span class="material-icons" aria-hidden="true">play_arrow</span>Replay</a>
         </div>
       </div>
       {% endif %}
@@ -3107,10 +3299,10 @@ REPLAY_HTML = """
     <div class="card">
       <div class="card-header">
         <div>
-          <h1>Replay</h1>
+          <h1 class="page-title"><span class="material-icons" aria-hidden="true">play_arrow</span>Replay</h1>
           <p class="subtitle">Replay uplinks from <strong>{{ selected_filename }}</strong> to your UDP forwarder.</p>
         </div>
-        <a class="secondary-button" href="{{ back_url }}">Back</a>
+        <a class="secondary-button" href="{{ back_url }}"><span class="material-icons" aria-hidden="true">arrow_back</span>Back</a>
       </div>
 
       {% if summary_lines %}
@@ -3305,10 +3497,10 @@ SIMPLE_PAGE_HTML = """
     <div class="card">
       <div class="card-header">
         <div>
-          <h1>{{ title }}</h1>
+          <h1 class="page-title">{% if title_icon %}<span class="material-icons" aria-hidden="true">{{ title_icon }}</span>{% endif %}{{ title }}</h1>
           <p class="subtitle">{{ subtitle }}</p>
         </div>
-        <a class="secondary-button" href="{{ back_url }}">Back</a>
+        <a class="secondary-button" href="{{ back_url }}"><span class="material-icons" aria-hidden="true">arrow_back</span>Back</a>
       </div>
       {{ body_html|safe }}
     </div>
@@ -3339,7 +3531,7 @@ LOGIN_HTML = """
     <div class="card">
       <div class="card-header">
         <div>
-          <h1>Sign in</h1>
+          <h1 class="page-title"><span class="material-icons" aria-hidden="true">login</span>Sign in</h1>
           <p class="subtitle">Authenticate to access the Replay tool.</p>
         </div>
       </div>
@@ -3388,7 +3580,7 @@ CHANGE_PASSWORD_HTML = """
     <div class="card">
       <div class="card-header">
         <div>
-          <h1>Change password</h1>
+          <h1 class="page-title"><span class="material-icons" aria-hidden="true">lock</span>Change password</h1>
           <p class="subtitle">Set a new password to continue.</p>
         </div>
       </div>
@@ -3412,8 +3604,8 @@ CHANGE_PASSWORD_HTML = """
           <div class="field-controls">
             <input id="new_password" name="new_password" type="text" autocomplete="new-password" data-password-input required>
             <div class="field-tools">
-              <button type="button" class="icon-button" data-password-generate title="Generate password">↻</button>
-              <button type="button" class="icon-button" data-password-copy title="Copy password">⧉</button>
+              <button type="button" class="icon-button" data-password-generate title="Generate password"><span class="material-icons" aria-hidden="true">autorenew</span></button>
+              <button type="button" class="icon-button" data-password-copy title="Copy password"><span class="material-icons" aria-hidden="true">content_copy</span></button>
             </div>
           </div>
         </div>
@@ -3448,10 +3640,10 @@ DECODE_HTML = """
     <div class="card">
       <div class="card-header">
         <div>
-          <h1>Decrypt &amp; Decode</h1>
+          <h1 class="page-title"><span class="material-icons" aria-hidden="true">lock_open</span>Decrypt &amp; Decode</h1>
           <p class="subtitle">Decrypt uplinks from <strong>{{ selected_filename }}</strong> and decode them with your payload decoder.</p>
         </div>
-        <a class="secondary-button" href="{{ back_url }}">Back</a>
+        <a class="secondary-button" href="{{ back_url }}"><span class="material-icons" aria-hidden="true">arrow_back</span>Back</a>
       </div>
 
       {% if summary_lines %}
@@ -3484,7 +3676,7 @@ DECODE_HTML = """
           {% endfor %}
         </div>
         <div class="form-actions">
-          <a class="secondary-button" href="{{ keys_url }}?scan_token={{ scan_token }}">Manage Devices</a>
+          <a class="secondary-button" href="{{ keys_url }}?scan_token={{ scan_token }}"><span class="material-icons" aria-hidden="true">settings</span>Manage Devices</a>
         </div>
       </div>
 
@@ -3505,7 +3697,7 @@ DECODE_HTML = """
           <input type="hidden" name="decoder_id" value="{{ selected_decoder }}">
           <div class="field-group">
             <div class="field-header">
-              <label>DevAddr {{ devaddr }}</label>
+              <label>DevAddr <span class="devaddr-label">{{ devaddr }}</span></label>
             </div>
             <div class="key-grid add-device-grid">
               <div>
@@ -3526,7 +3718,7 @@ DECODE_HTML = """
               </div>
             </div>
             <div class="form-actions">
-              <button type="submit">Add device</button>
+              <button type="submit" class="primary-button"><span class="material-icons" aria-hidden="true">add</span>Add device</button>
             </div>
           </div>
         </form>
@@ -3551,7 +3743,7 @@ DECODE_HTML = """
           </select>
           <div class="hint">Select the decoder and press Decode to process all decrypted payloads.</div>
           <div class="form-actions">
-            <a class="secondary-button" href="{{ decoders_url }}">Manage Decoders</a>
+            <a class="secondary-button" href="{{ decoders_url }}"><span class="material-icons" aria-hidden="true">settings</span>Manage Decoders</a>
           </div>
         </div>
         <div class="form-actions">
@@ -3572,16 +3764,16 @@ DECODE_HTML = """
             <input type="hidden" name="action" value="save_results">
             <input type="hidden" name="decoder_id" value="{{ selected_decoder }}">
             <input type="hidden" name="export_token" value="{{ export_token }}">
-            <button type="submit" class="secondary-button">Save results</button>
+            <button type="submit" class="secondary-button"><span class="material-icons" aria-hidden="true">save</span>Save results</button>
           </form>
           {% if export_csv_url %}
-          <a class="secondary-button" href="{{ export_csv_url }}">Export CSV</a>
+          <a class="secondary-button" href="{{ export_csv_url }}"><span class="material-icons" aria-hidden="true">file_download</span>Export CSV</a>
           {% endif %}
           {% if export_json_url %}
-          <a class="secondary-button" href="{{ export_json_url }}">Export JSON</a>
+          <a class="secondary-button" href="{{ export_json_url }}"><span class="material-icons" aria-hidden="true">file_download</span>Export JSON</a>
           {% endif %}
           {% if analyze_url %}
-          <a class="secondary-button" href="{{ analyze_url }}">Analyze results</a>
+          <a class="secondary-button" href="{{ analyze_url }}"><span class="material-icons" aria-hidden="true">analytics</span>Analyze results</a>
           {% endif %}
         </div>
         <details class="log-block" open>
@@ -3714,10 +3906,10 @@ DEVICE_KEYS_HTML = """
     <div class="card">
       <div class="card-header">
         <div>
-          <h1>Device Session Keys</h1>
+          <h1 class="page-title"><span class="material-icons" aria-hidden="true">memory</span>Devices</h1>
           <p class="subtitle">Store DevAddr, optional names, and ABP session keys for decoding.</p>
         </div>
-        <a class="secondary-button" href="{{ back_url }}">Back</a>
+        <a class="secondary-button" href="{{ back_url }}"><span class="material-icons" aria-hidden="true">arrow_back</span>Back</a>
       </div>
 
       {% if summary_lines %}
@@ -3752,7 +3944,7 @@ DEVICE_KEYS_HTML = """
             {% for devaddr in known_devaddrs %}
             <div class="device-row">
               <div class="field-header">
-                <label>DevAddr {{ devaddr }}</label>
+                <label>DevAddr <span class="devaddr-label">{{ devaddr }}</span></label>
               </div>
               <div class="key-grid device-grid">
                 <div>
@@ -3763,19 +3955,19 @@ DEVICE_KEYS_HTML = """
                   <label for="nwk_{{ devaddr }}">NwkSKey</label>
                   <div class="field-controls key-controls">
                     <input class="input-with-actions key-input" id="nwk_{{ devaddr }}" name="nwk_{{ devaddr }}" type="password" value="{{ credentials.get(devaddr, {}).get('nwk_skey', '') }}" pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" title="32 hex characters" autocomplete="off" spellcheck="false">
-                    <button type="button" class="toggle-visibility" data-toggle-visibility="nwk_{{ devaddr }}" aria-pressed="false" title="Show key">👁</button>
+                    <button type="button" class="toggle-visibility" data-toggle-visibility="nwk_{{ devaddr }}" aria-pressed="false" title="Show key"><span class="material-icons" aria-hidden="true">visibility</span></button>
                   </div>
                 </div>
                 <div>
                   <label for="app_{{ devaddr }}">AppSKey</label>
                   <div class="field-controls key-controls">
                     <input class="input-with-actions key-input" id="app_{{ devaddr }}" name="app_{{ devaddr }}" type="password" value="{{ credentials.get(devaddr, {}).get('app_skey', '') }}" pattern="[0-9A-Fa-f]{32}" minlength="32" maxlength="32" title="32 hex characters" autocomplete="off" spellcheck="false">
-                    <button type="button" class="toggle-visibility" data-toggle-visibility="app_{{ devaddr }}" aria-pressed="false" title="Show key">👁</button>
+                    <button type="button" class="toggle-visibility" data-toggle-visibility="app_{{ devaddr }}" aria-pressed="false" title="Show key"><span class="material-icons" aria-hidden="true">visibility</span></button>
                   </div>
                 </div>
                 <div class="remove-cell">
                   <button type="button" class="danger-button" data-delete-devaddr="{{ devaddr }}" title="Remove device" aria-label="Remove device">
-                    🗑
+                    <span class="material-icons" aria-hidden="true">delete</span>
                   </button>
                 </div>
               </div>
@@ -3784,7 +3976,7 @@ DEVICE_KEYS_HTML = """
           </div>
         </div>
         <div class="form-actions">
-          <button type="submit">Save updates</button>
+          <button type="submit" class="primary-button"><span class="material-icons" aria-hidden="true">save</span>Save updates</button>
         </div>
       </form>
 
@@ -3821,7 +4013,7 @@ DEVICE_KEYS_HTML = """
           </div>
         </div>
         <div class="form-actions">
-          <button type="submit">Add device</button>
+          <button type="submit" class="primary-button"><span class="material-icons" aria-hidden="true">add</span>Add device</button>
         </div>
       </form>
     </div>
@@ -3867,10 +4059,10 @@ GENERATOR_HTML = """
     <div class="card">
       <div class="card-header">
         <div>
-          <h1>Generate Test Logfile</h1>
+          <h1 class="page-title"><span class="material-icons" aria-hidden="true">description</span>Generate Test Logfile</h1>
           <p class="subtitle">Configure LoRaWAN ABP parameters and download a JSON Lines log.</p>
         </div>
-        <a class="secondary-button" href="{{ files_url }}">Back to Files</a>
+        <a class="secondary-button" href="{{ files_url }}"><span class="material-icons" aria-hidden="true">arrow_back</span>Back to Files</a>
       </div>
 
       <form method="POST" action="{{ generator_url }}">
@@ -3882,8 +4074,8 @@ GENERATOR_HTML = """
           <div class="field-controls">
             <input class="input-with-actions" id="gateway_eui" name="gateway_eui" type="text" value="{{ form_values.gateway_eui }}" required>
             <div class="field-tools">
-              <button type="button" class="icon-button" onclick="generateField('gateway_eui', 'gateway_eui')" title="Generate Gateway EUI">↻</button>
-              <button type="button" class="icon-button" onclick="copyField('gateway_eui')" title="Copy Gateway EUI">⧉</button>
+              <button type="button" class="icon-button" onclick="generateField('gateway_eui', 'gateway_eui')" title="Generate Gateway EUI"><span class="material-icons" aria-hidden="true">autorenew</span></button>
+              <button type="button" class="icon-button" onclick="copyField('gateway_eui')" title="Copy Gateway EUI"><span class="material-icons" aria-hidden="true">content_copy</span></button>
             </div>
           </div>
           <div class="hint">16 hex characters, e.g. 0102030405060708.</div>
@@ -3896,8 +4088,8 @@ GENERATOR_HTML = """
           <div class="field-controls">
             <input class="input-with-actions" id="devaddr_hex" name="devaddr_hex" type="text" value="{{ form_values.devaddr_hex }}" required>
             <div class="field-tools">
-              <button type="button" class="icon-button" onclick="generateField('devaddr_hex', 'devaddr')" title="Generate DevAddr">↻</button>
-              <button type="button" class="icon-button" onclick="copyField('devaddr_hex')" title="Copy DevAddr">⧉</button>
+              <button type="button" class="icon-button" onclick="generateField('devaddr_hex', 'devaddr')" title="Generate DevAddr"><span class="material-icons" aria-hidden="true">autorenew</span></button>
+              <button type="button" class="icon-button" onclick="copyField('devaddr_hex')" title="Copy DevAddr"><span class="material-icons" aria-hidden="true">content_copy</span></button>
             </div>
           </div>
         </div>
@@ -3909,8 +4101,8 @@ GENERATOR_HTML = """
           <div class="field-controls">
             <input class="input-with-actions" id="nwk_skey_hex" name="nwk_skey_hex" type="text" value="{{ form_values.nwk_skey_hex }}" required>
             <div class="field-tools">
-              <button type="button" class="icon-button" onclick="generateField('nwk_skey_hex', 'skey')" title="Generate NwkSKey">↻</button>
-              <button type="button" class="icon-button" onclick="copyField('nwk_skey_hex')" title="Copy NwkSKey">⧉</button>
+              <button type="button" class="icon-button" onclick="generateField('nwk_skey_hex', 'skey')" title="Generate NwkSKey"><span class="material-icons" aria-hidden="true">autorenew</span></button>
+              <button type="button" class="icon-button" onclick="copyField('nwk_skey_hex')" title="Copy NwkSKey"><span class="material-icons" aria-hidden="true">content_copy</span></button>
             </div>
           </div>
         </div>
@@ -3922,8 +4114,8 @@ GENERATOR_HTML = """
           <div class="field-controls">
             <input class="input-with-actions" id="app_skey_hex" name="app_skey_hex" type="text" value="{{ form_values.app_skey_hex }}" required>
             <div class="field-tools">
-              <button type="button" class="icon-button" onclick="generateField('app_skey_hex', 'skey')" title="Generate AppSKey">↻</button>
-              <button type="button" class="icon-button" onclick="copyField('app_skey_hex')" title="Copy AppSKey">⧉</button>
+              <button type="button" class="icon-button" onclick="generateField('app_skey_hex', 'skey')" title="Generate AppSKey"><span class="material-icons" aria-hidden="true">autorenew</span></button>
+              <button type="button" class="icon-button" onclick="copyField('app_skey_hex')" title="Copy AppSKey"><span class="material-icons" aria-hidden="true">content_copy</span></button>
             </div>
           </div>
         </div>
@@ -4007,7 +4199,7 @@ GENERATOR_HTML = """
 
         <div class="form-actions">
           <button type="submit">Generate</button>
-          <a class="secondary-button" href="{{ files_url }}">Back to Files</a>
+          <a class="secondary-button" href="{{ files_url }}"><span class="material-icons" aria-hidden="true">arrow_back</span>Back to Files</a>
         </div>
       </form>
     </div>
@@ -4029,11 +4221,11 @@ GENERATOR_HTML = """
       </div>
       <div class="form-actions">
         {% if generated_scan_token %}
-        <a class="secondary-button" href="{{ replay_url }}?scan_token={{ generated_scan_token }}">Replay</a>
-        <a class="secondary-button" href="{{ decode_url }}?scan_token={{ generated_scan_token }}">Decrypt &amp; Decode</a>
+        <a class="secondary-button" href="{{ replay_url }}?scan_token={{ generated_scan_token }}"><span class="material-icons" aria-hidden="true">play_arrow</span>Replay</a>
+        <a class="secondary-button" href="{{ decode_url }}?scan_token={{ generated_scan_token }}"><span class="material-icons" aria-hidden="true">lock_open</span>Decrypt &amp; Decode</a>
         {% else %}
-        <button type="button" class="secondary-button" disabled>Replay</button>
-        <button type="button" class="secondary-button" disabled>Decrypt &amp; Decode</button>
+        <button type="button" class="secondary-button" disabled><span class="material-icons" aria-hidden="true">play_arrow</span>Replay</button>
+        <button type="button" class="secondary-button" disabled><span class="material-icons" aria-hidden="true">lock_open</span>Decrypt &amp; Decode</button>
         {% endif %}
         <button type="button" data-generated-close>Close</button>
       </div>
@@ -5096,6 +5288,16 @@ def render_replay_page(
 def render_simple_page(title, subtitle, body_html, active_page, page_title=None):
     logo_url = url_for("static", filename="company_logo.png")
     back_url = resolve_back_url(url_for("index"))
+    title_icons = {
+        "start": "home",
+        "devices": "memory",
+        "users": "group",
+        "files": "folder",
+        "decoders": "code",
+        "integrations": "hub",
+        "about": "info",
+    }
+    title_icon = title_icons.get(active_page)
     return render_template_string(
         SIMPLE_PAGE_HTML,
         style_block=STYLE_BLOCK,
@@ -5103,6 +5305,7 @@ def render_simple_page(title, subtitle, body_html, active_page, page_title=None)
         logo_url=logo_url,
         favicon_url=url_for("static", filename="favicon.ico"),
         title=title,
+        title_icon=title_icon,
         subtitle=subtitle,
         body_html=body_html,
         page_title=page_title or title,
@@ -5405,7 +5608,9 @@ def users_page():
                 f"{csrf_input}"
                 f"<input type=\"hidden\" name=\"action\" value=\"delete_user\">"
                 f"<input type=\"hidden\" name=\"username\" value=\"{html.escape(username)}\">"
-                f"<button type=\"submit\" class=\"danger-button danger-text\">Remove</button>"
+                f"<button type=\"submit\" class=\"danger-button danger-text\">"
+                f"<span class=\"material-icons\" aria-hidden=\"true\">delete</span>"
+                f"<span>Remove</span></button>"
                 f"</form>"
                 f"</div>"
             )
@@ -5466,15 +5671,15 @@ def users_page():
               <div class=\"field-controls\">
                 <input id=\"new_password\" name=\"new_password\" type=\"text\" data-temp-password required>
                 <div class=\"field-tools\">
-                  <button type=\"button\" class=\"icon-button\" data-temp-generate title=\"Generate password\">↻</button>
-                  <button type=\"button\" class=\"icon-button\" data-temp-copy title=\"Copy password\">⧉</button>
+                  <button type=\"button\" class=\"icon-button\" data-temp-generate title=\"Generate password\"><span class="material-icons" aria-hidden="true">autorenew</span></button>
+                  <button type=\"button\" class=\"icon-button\" data-temp-copy title=\"Copy password\"><span class="material-icons" aria-hidden="true">content_copy</span></button>
                 </div>
               </div>
             </div>
           </div>
         </div>
         <div class=\"form-actions\">
-          <button type=\"submit\">Add user</button>
+          <button type=\"submit\" class=\"primary-button\"><span class=\"material-icons\" aria-hidden=\"true\">person_add</span>Add user</button>
         </div>
       </form>
       <div class=\"modal-overlay\" data-password-modal hidden>
@@ -5490,14 +5695,14 @@ def users_page():
               <div class=\"field-controls\">
                 <input id=\"modal_password\" name=\"new_password\" type=\"text\" data-password-input required>
                 <div class=\"field-tools\">
-                  <button type=\"button\" class=\"icon-button\" data-password-generate title=\"Generate password\">↻</button>
-                  <button type=\"button\" class=\"icon-button\" data-password-copy title=\"Copy password\">⧉</button>
+                  <button type=\"button\" class=\"icon-button\" data-password-generate title=\"Generate password\"><span class="material-icons" aria-hidden="true">autorenew</span></button>
+                  <button type=\"button\" class=\"icon-button\" data-password-copy title=\"Copy password\"><span class="material-icons" aria-hidden="true">content_copy</span></button>
                 </div>
               </div>
             </div>
             <div class=\"modal-actions\">
               <button type=\"submit\">Update password</button>
-              <button type=\"button\" class=\"secondary-button\" data-password-close>Close</button>
+              <button type=\"button\" class=\"secondary-button\" data-password-close><span class=\"material-icons\" aria-hidden=\"true\">close</span>Close</button>
             </div>
           </form>
         </div>
@@ -5559,9 +5764,9 @@ def files_page():
                     saved_items.append(
                         f"<div class=\"saved-entry\">"
                         f"<span class=\"saved-label\">Saved results ({created_at})</span>"
-                        f"<a class=\"secondary-button\" href=\"{analyze_url}\">Analyze</a>"
-                        f"<a class=\"secondary-button\" href=\"{export_csv_url}\">CSV</a>"
-                        f"<a class=\"secondary-button\" href=\"{export_json_url}\">JSON</a>"
+                        f"<a class=\"secondary-button\" href=\"{analyze_url}\"><span class=\"material-icons\" aria-hidden=\"true\">analytics</span>Analyze</a>"
+                        f"<a class=\"secondary-button\" href=\"{export_csv_url}\"><span class=\"material-icons\" aria-hidden=\"true\">file_download</span>CSV</a>"
+                        f"<a class=\"secondary-button\" href=\"{export_json_url}\"><span class=\"material-icons\" aria-hidden=\"true\">file_download</span>JSON</a>"
                         f"{decoder_meta}"
                         f"</div>"
                     )
@@ -5578,14 +5783,14 @@ def files_page():
                 f"</summary>"
                 f"<div class=\"file-body\">"
                 f"<div class=\"file-actions\">"
-                f"<a class=\"secondary-button\" href=\"{view_url}\">View</a>"
-                f"<a class=\"secondary-button\" href=\"{download_url}\">Download</a>"
-                f"<a class=\"secondary-button\" href=\"{decode_url}\">Decrypt &amp; decode</a>"
-                f"<a class=\"secondary-button\" href=\"{url_for('start_scan_from_file', log_id=log['id'])}\">Scan</a>"
-                f"<a class=\"secondary-button\" href=\"{replay_url}\">Replay</a>"
+                f"<a class=\"secondary-button\" href=\"{view_url}\"><span class=\"material-icons\" aria-hidden=\"true\">visibility</span>View</a>"
+                f"<a class=\"secondary-button\" href=\"{download_url}\"><span class=\"material-icons\" aria-hidden=\"true\">download</span>Download</a>"
+                f"<a class=\"secondary-button\" href=\"{decode_url}\"><span class=\"material-icons\" aria-hidden=\"true\">lock_open</span>Decrypt &amp; decode</a>"
+                f"<a class=\"secondary-button\" href=\"{url_for('start_scan_from_file', log_id=log['id'])}\"><span class=\"material-icons\" aria-hidden=\"true\">qr_code_scanner</span>Scan</a>"
+                f"<a class=\"secondary-button\" href=\"{replay_url}\"><span class=\"material-icons\" aria-hidden=\"true\">play_arrow</span>Replay</a>"
                 f"<button type=\"button\" class=\"danger-button danger-text\" "
                 f"data-delete-file=\"{log_id}\" "
-                f"title=\"Remove log file\" aria-label=\"Remove log file\">🗑<span>Remove</span></button>"
+                f"title=\"Remove log file\" aria-label=\"Remove log file\"><span class=\"material-icons\" aria-hidden=\"true\">delete</span><span>Remove</span></button>"
                 f"</div>"
                 f"{saved_html}"
                 f"</div>"
@@ -5643,7 +5848,7 @@ def files_page():
           <h3>Generate a sample log file</h3>
           <div class="hint">Download a ready-made JSONL sample.</div>
           <div class="option-actions">
-            <a class="secondary-button" href="{url_for('generate_log_page')}">Generate sample</a>
+            <a class="secondary-button" href="{url_for('generate_log_page')}"><span class="material-icons" aria-hidden="true">auto_awesome</span>Generate sample</a>
           </div>
         </div>
       </div>
@@ -5736,11 +5941,14 @@ def decoders_page():
                     delete_button = (
                         f"<button type=\"button\" class=\"danger-button danger-text\" "
                         f"data-delete-decoder=\"{decoder_id}\" "
-                        f"title=\"Remove decoder\" aria-label=\"Remove decoder\">🗑<span>Remove</span></button>"
+                        f"title=\"Remove decoder\" aria-label=\"Remove decoder\">"
+                        f"<span class=\"material-icons\" aria-hidden=\"true\">delete</span>"
+                        f"<span>Remove</span></button>"
                     )
                 actions_html = (
                     f"<div class=\"decoder-actions\">"
-                    f"<a class=\"secondary-button\" href=\"{view_url}\">View</a>"
+                    f"<a class=\"secondary-button\" href=\"{view_url}\">"
+                    f"<span class=\"material-icons\" aria-hidden=\"true\">visibility</span>View</a>"
                     f"{delete_button}"
                     f"</div>"
                 )
@@ -5784,7 +5992,7 @@ def decoders_page():
           <div class="hint">JS decoders should define <code>Decoder(bytes, port)</code> or <code>decodeUplink({{ bytes, fPort }})</code>.</div>
         </div>
         <div class="form-actions">
-          <button type="submit">Upload decoder</button>
+          <button type="submit" class="primary-button"><span class="material-icons" aria-hidden="true">upload</span>Upload decoder</button>
         </div>
       </form>
         """
@@ -5825,24 +6033,24 @@ def integrations_page():
           <h3>EarthRanger (HTTP)</h3>
           <div class="hint">Send decoded uplinks to EarthRanger via HTTP integration.</div>
           <div class="option-actions">
-            <button type="button" class="secondary-button">Add integration</button>
-            <button type="button" class="secondary-button">Manage</button>
+            <button type="button" class="secondary-button"><span class="material-icons" aria-hidden="true">add</span>Add integration</button>
+            <button type="button" class="secondary-button"><span class="material-icons" aria-hidden="true">settings</span>Manage</button>
           </div>
         </div>
         <div class="logfile-option integration-block">
           <h3>InfluxDB</h3>
           <div class="hint">Stream decoded uplinks into an InfluxDB bucket.</div>
           <div class="option-actions">
-            <button type="button" class="secondary-button">Add integration</button>
-            <button type="button" class="secondary-button">Manage</button>
+            <button type="button" class="secondary-button"><span class="material-icons" aria-hidden="true">add</span>Add integration</button>
+            <button type="button" class="secondary-button"><span class="material-icons" aria-hidden="true">settings</span>Manage</button>
           </div>
         </div>
         <div class="logfile-option integration-block">
           <h3>MQTT</h3>
           <div class="hint">Publish decoded uplinks to an MQTT broker.</div>
           <div class="option-actions">
-            <button type="button" class="secondary-button">Add integration</button>
-            <button type="button" class="secondary-button">Manage</button>
+            <button type="button" class="secondary-button"><span class="material-icons" aria-hidden="true">add</span>Add integration</button>
+            <button type="button" class="secondary-button"><span class="material-icons" aria-hidden="true">settings</span>Manage</button>
           </div>
         </div>
       </div>
@@ -5895,7 +6103,7 @@ def view_decoder():
         <pre class="code-block">{html.escape(content)}</pre>
       </div>
       <div class="form-actions">
-        <a class="secondary-button" href="{url_for('decoders_page')}">Back to Decoders</a>
+        <a class="secondary-button" href="{url_for('decoders_page')}"><span class="material-icons" aria-hidden="true">arrow_back</span>Back to Decoders</a>
       </div>
     """
     return render_simple_page(
@@ -5940,7 +6148,7 @@ def view_log_file():
         <pre class="code-block">{html.escape(content)}</pre>
       </div>
       <div class="form-actions">
-        <a class="secondary-button" href="{url_for('files_page')}">Back to Files</a>
+        <a class="secondary-button" href="{url_for('files_page')}"><span class="material-icons" aria-hidden="true">arrow_back</span>Back to Files</a>
       </div>
     """
     return render_simple_page(
@@ -6172,7 +6380,7 @@ def about_page():
           <div class="hint">Smart Parks is a conservation technology organization focused on protecting wildlife and empowering rangers with resilient field tools.</div>
           <div class="hint">Their solutions combine on-animal sensors, ranger communications, and real-time monitoring to support anti-poaching and animal welfare across protected areas.</div>
           <div class="option-actions">
-            <a class="secondary-button" href="https://www.smartparks.org" target="_blank" rel="noopener">www.smartparks.org</a>
+            <a class="secondary-button" href="https://www.smartparks.org" target="_blank" rel="noopener"><span class="material-icons" aria-hidden="true">open_in_new</span>www.smartparks.org</a>
           </div>
         </div>
         <div class="logfile-option">
@@ -7247,6 +7455,7 @@ def analyze_results():
       <div class="result error" id="analysis_error" style="display:none;"></div>
       <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+      <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
       <script type="application/json" id="analysis_payload">{analyze_payload}</script>
       <script type="application/json" id="analysis_field_meta">{field_meta_payload}</script>
       <details class="chart-card" open>
@@ -7343,7 +7552,7 @@ def analyze_results():
           </div>
           <div class="control-row full-row">
             <label class="analytics-hint">&nbsp;</label>
-            <button type="button" class="secondary-button" id="generate_chart">Generate</button>
+            <button type="button" class="secondary-button" id="generate_chart"><span class="material-icons" aria-hidden="true">insights</span>Generate</button>
           </div>
         </div>
 
@@ -7353,6 +7562,18 @@ def analyze_results():
           <div id="stats_box"></div>
         </details>
         <div class="chart-wrapper" id="chart_panel" style="display:none;">
+          <button type="button" class="chart-toggle-button" id="chart_expand" title="Expand chart" aria-label="Expand chart">
+            <span class="material-icons" aria-hidden="true">open_in_full</span>
+          </button>
+          <button type="button" class="chart-toggle-button chart-zoom-reset" id="chart_reset_zoom" title="Reset zoom" aria-label="Reset zoom">
+            <span class="material-icons" aria-hidden="true">restart_alt</span>
+          </button>
+          <button type="button" class="chart-toggle-button chart-toggle-line" id="chart_toggle_line" title="Toggle line" aria-label="Toggle line">
+            <span class="material-icons" aria-hidden="true">show_chart</span>
+          </button>
+          <button type="button" class="chart-toggle-button chart-toggle-points" id="chart_toggle_points" title="Toggle points" aria-label="Toggle points">
+            <span class="material-icons" aria-hidden="true">scatter_plot</span>
+          </button>
           <canvas class="chart-canvas" id="chart_canvas" height="340"></canvas>
         </div>
         <div class="analysis-table-wrapper" id="analysis_table_panel" style="margin-top: 0.8rem; display:none;">
@@ -7384,15 +7605,11 @@ def analyze_results():
           </div>
           <div class="control-row">
             <label>Coordinate filter</label>
-            <label class="analytics-hint"><input type="checkbox" id="ignore_zero_coords"> Ignore lat=0 or lon=0</label>
-          </div>
-          <div class="control-row">
-            <label>Track</label>
-            <label class="analytics-hint"><input type="checkbox" id="track_toggle"> Draw line between points</label>
+            <label class="analytics-hint"><input type="checkbox" id="ignore_zero_coords" checked> Ignore lat=0 or lon=0</label>
           </div>
           <div class="control-row full-row">
             <label class="analytics-hint">&nbsp;</label>
-            <button type="button" class="secondary-button" id="generate_map">Generate Map</button>
+            <button type="button" class="secondary-button" id="generate_map"><span class="material-icons" aria-hidden="true">map</span>Generate Map</button>
           </div>
         </div>
         <div class="analytics-hint" id="map_message"></div>
@@ -7646,6 +7863,8 @@ def analyze_results():
           let currentTable = {{ columns: [], rows: [] }};
           let currentMapRows = [];
           let chartRef = null;
+          let chartShowPoints = true;
+          let chartShowLine = true;
           const setDebug = () => {{}};
 
           renderMessageSummary();
@@ -7836,6 +8055,68 @@ def analyze_results():
             return "day";
           }};
 
+          const formatTimeLabel = (value) => {{
+            const num = parseNumber(value);
+            if (num === null) return "";
+            const date = new Date(num);
+            if (Number.isNaN(date.getTime())) return "";
+            return date.toLocaleString(undefined, {{
+              month: "short",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit"
+            }});
+          }};
+
+          const getTimeAxisConfig = (points) => {{
+            if (!points.length) {{
+              return {{ min: undefined, max: undefined, stepSize: undefined, maxTicks: 12 }};
+            }}
+            const xs = points.map((point) => point.x).filter((x) => Number.isFinite(x));
+            const min = Math.min(...xs);
+            const max = Math.max(...xs);
+            const span = Math.max(1, max - min);
+            const hour = 60 * 60 * 1000;
+            const day = 24 * hour;
+            let stepSize = hour;
+            if (span <= 6 * hour) stepSize = hour;
+            else if (span <= day) stepSize = 2 * hour;
+            else if (span <= 3 * day) stepSize = 6 * hour;
+            else if (span <= 7 * day) stepSize = 12 * hour;
+            else stepSize = day;
+            const minAligned = Math.floor(min / stepSize) * stepSize;
+            const maxAligned = Math.ceil(max / stepSize) * stepSize;
+            return {{ min: minAligned, max: maxAligned, stepSize, maxTicks: 14 }};
+          }};
+
+          const getZoomPluginConfig = () => {{
+            return {{
+              zoom: {{
+                zoom: {{
+                  drag: {{
+                    enabled: true,
+                    backgroundColor: "rgba(37,99,235,0.12)",
+                    borderColor: "rgba(37,99,235,0.6)",
+                    borderWidth: 1
+                  }},
+                  mode: "x",
+                  onZoomComplete: ({{ chart }}) => {{
+                    const scale = chart.scales?.x;
+                    if (!scale) return;
+                    const start = scale.min;
+                    const end = scale.max;
+                    if (!Number.isFinite(start) || !Number.isFinite(end)) return;
+                    const startInput = document.getElementById("start_time");
+                    const endInput = document.getElementById("end_time");
+                    if (startInput) startInput.value = formatLocalDateTime(start);
+                    if (endInput) endInput.value = formatLocalDateTime(end);
+                    generateAnalysis();
+                  }}
+                }}
+              }}
+            }};
+          }};
+
           const timeScaleType = () => {{
             return "linear";
           }};
@@ -7850,6 +8131,7 @@ def analyze_results():
               return;
             }}
             const xScaleType = timeScaleType();
+            const timeAxis = getTimeAxisConfig(points);
             try {{
               chartRef = new Chart(ctx, {{
                 type: "line",
@@ -7860,7 +8142,8 @@ def analyze_results():
                       data: points,
                       borderColor: "#2563eb",
                       backgroundColor: "rgba(37,99,235,0.15)",
-                      pointRadius: 0,
+                      pointRadius: chartShowPoints ? 2 : 0,
+                      showLine: chartShowLine,
                       borderWidth: 2,
                       parsing: false
                     }}
@@ -7875,19 +8158,24 @@ def analyze_results():
                       type: xScaleType,
                       title: {{ display: !!config.xLabel, text: config.xLabel }},
                       ticks: {{
-                        callback: (value) => new Date(value).toLocaleString()
-                      }}
+                        stepSize: timeAxis.stepSize,
+                        maxTicksLimit: timeAxis.maxTicks,
+                        callback: (value) => formatTimeLabel(value)
+                      }},
+                      min: timeAxis.min,
+                      max: timeAxis.max
                     }},
                     y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }}
                   }},
                   plugins: {{
                     legend: {{ position: "bottom" }},
                     title: {{ display: !!config.title, text: config.title }},
+                    ...getZoomPluginConfig(),
                     tooltip: {{
                       callbacks: {{
                         title: (items) => {{
                           const x = items[0]?.parsed?.x;
-                          return Number.isFinite(x) ? new Date(x).toLocaleString() : "";
+                          return Number.isFinite(x) ? formatTimeLabel(x) : "";
                         }},
                         label: (ctx) => {{
                           const field = config.field || "";
@@ -7918,12 +8206,14 @@ def analyze_results():
               return;
             }}
             const xScaleType = timeScaleType();
+            const timeAxis = getTimeAxisConfig(points);
             const datasets = series.map((line, index) => ({{
               label: line.label || `Series ${{index + 1}}`,
               data: line.points || [],
               borderColor: line.color || (index === 0 ? "#2563eb" : "#dc2626"),
               backgroundColor: "transparent",
-              pointRadius: 0,
+              pointRadius: chartShowPoints ? 2 : 0,
+              showLine: chartShowLine,
               borderWidth: 2,
               parsing: false,
               field: line.field || ""
@@ -7941,19 +8231,24 @@ def analyze_results():
                       type: xScaleType,
                       title: {{ display: !!config.xLabel, text: config.xLabel }},
                       ticks: {{
-                        callback: (value) => new Date(value).toLocaleString()
-                      }}
+                        stepSize: timeAxis.stepSize,
+                        maxTicksLimit: timeAxis.maxTicks,
+                        callback: (value) => formatTimeLabel(value)
+                      }},
+                      min: timeAxis.min,
+                      max: timeAxis.max
                     }},
                     y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }}
                   }},
                   plugins: {{
                     legend: {{ position: "bottom" }},
                     title: {{ display: !!config.title, text: config.title }},
+                    ...getZoomPluginConfig(),
                     tooltip: {{
                       callbacks: {{
                         title: (items) => {{
                           const x = items[0]?.parsed?.x;
-                          return Number.isFinite(x) ? new Date(x).toLocaleString() : "";
+                          return Number.isFinite(x) ? formatTimeLabel(x) : "";
                         }},
                         label: (ctx) => {{
                           const field = ctx.dataset?.field || config.field || "";
@@ -7983,6 +8278,7 @@ def analyze_results():
               return;
             }}
             const xScaleType = timeScaleType();
+            const timeAxis = getTimeAxisConfig(points);
             try {{
               chartRef = new Chart(ctx, {{
                 type: "bar",
@@ -8005,19 +8301,24 @@ def analyze_results():
                       type: xScaleType,
                       title: {{ display: !!config.xLabel, text: config.xLabel }},
                       ticks: {{
-                        callback: (value) => new Date(value).toLocaleString()
-                      }}
+                        stepSize: timeAxis.stepSize,
+                        maxTicksLimit: timeAxis.maxTicks,
+                        callback: (value) => formatTimeLabel(value)
+                      }},
+                      min: timeAxis.min,
+                      max: timeAxis.max
                     }},
                     y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }}
                   }},
                   plugins: {{
                     legend: {{ position: "bottom" }},
                     title: {{ display: !!config.title, text: config.title }},
+                    ...getZoomPluginConfig(),
                     tooltip: {{
                       callbacks: {{
                         title: (items) => {{
                           const x = items[0]?.parsed?.x;
-                          return Number.isFinite(x) ? new Date(x).toLocaleString() : "";
+                          return Number.isFinite(x) ? formatTimeLabel(x) : "";
                         }},
                         label: (ctx) => {{
                           const field = config.field || "";
@@ -8495,10 +8796,67 @@ def analyze_results():
             }}
           }};
 
+          const updateChartToggleButtons = () => {{
+            const lineButton = document.getElementById("chart_toggle_line");
+            const pointButton = document.getElementById("chart_toggle_points");
+            const chartType = document.getElementById("chart_type")?.value || "line";
+            const showLineControls = chartType === "line";
+            const display = showLineControls ? "" : "none";
+            if (lineButton) {{
+              lineButton.style.display = display;
+              lineButton.classList.toggle("is-active", chartShowLine);
+            }}
+            if (pointButton) {{
+              pointButton.style.display = display;
+              pointButton.classList.toggle("is-active", chartShowPoints);
+            }}
+          }};
+
+          const toggleChartExpand = () => {{
+            const chartPanel = document.getElementById("chart_panel");
+            const button = document.getElementById("chart_expand");
+            if (!chartPanel || !button) return;
+            const isExpanded = chartPanel.classList.toggle("chart-expanded");
+            button.innerHTML = isExpanded
+              ? '<span class="material-icons" aria-hidden="true">close_fullscreen</span>'
+              : '<span class="material-icons" aria-hidden="true">open_in_full</span>';
+            button.title = isExpanded ? "Collapse chart" : "Expand chart";
+            button.setAttribute("aria-label", button.title);
+            if (chartRef) {{
+              setTimeout(() => chartRef.resize(), 60);
+            }}
+          }};
+
+          const resetChartZoom = () => {{
+            if (chartRef && chartRef.resetZoom) {{
+              chartRef.resetZoom();
+            }}
+            updateTimeBounds({{
+              portValue: document.getElementById("port_filter")?.value.trim() || "",
+              startId: "start_time",
+              endId: "end_time",
+              requireLocation: false
+            }});
+            generateAnalysis();
+          }};
+
+          const toggleChartLine = () => {{
+            chartShowLine = !chartShowLine;
+            updateChartToggleButtons();
+            generateAnalysis();
+          }};
+
+          const toggleChartPoints = () => {{
+            chartShowPoints = !chartShowPoints;
+            updateChartToggleButtons();
+            generateAnalysis();
+          }};
+
           let mapRef = null;
           let mapLayer = null;
           let mapTrack = null;
           let mapLegend = null;
+          let mapTrackEnabled = false;
           const generateMap = async () => {{
             const mapPanel = document.getElementById("map_panel");
             const mapMessage = document.getElementById("map_message");
@@ -8514,7 +8872,7 @@ def analyze_results():
             const latField = pickBestLat();
             const lonField = pickBestLon();
             const ignoreZero = document.getElementById("ignore_zero_coords")?.checked || false;
-            const track = document.getElementById("track_toggle")?.checked || false;
+            const track = mapTrackEnabled;
 
             if (!latField || !lonField) {{
               if (mapMessage) {{
@@ -8632,6 +8990,49 @@ def analyze_results():
               }});
               tiles.addTo(mapRef);
               mapLayer = L.layerGroup().addTo(mapRef);
+
+              const toggleControl = L.control({{ position: "topright" }});
+              toggleControl.onAdd = () => {{
+                const container = L.DomUtil.create("div", "leaflet-bar");
+                const button = L.DomUtil.create("button", "map-toggle-button", container);
+                button.type = "button";
+                button.title = "Expand map";
+                button.setAttribute("aria-label", "Expand map");
+                button.innerHTML = '<span class="material-icons" aria-hidden="true">open_in_full</span>';
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.on(button, "click", (event) => {{
+                  L.DomEvent.stop(event);
+                  const isExpanded = mapPanel.classList.toggle("map-expanded");
+                  button.innerHTML = isExpanded
+                    ? '<span class="material-icons" aria-hidden="true">close_fullscreen</span>'
+                    : '<span class="material-icons" aria-hidden="true">open_in_full</span>';
+                  button.title = isExpanded ? "Collapse map" : "Expand map";
+                  button.setAttribute("aria-label", button.title);
+                  setTimeout(() => mapRef.invalidateSize(true), 60);
+                }});
+                return container;
+              }};
+              toggleControl.addTo(mapRef);
+
+              const trackControl = L.control({{ position: "topright" }});
+              trackControl.onAdd = () => {{
+                const container = L.DomUtil.create("div", "leaflet-bar");
+                const button = L.DomUtil.create("button", "map-toggle-button", container);
+                button.type = "button";
+                button.title = "Toggle track";
+                button.setAttribute("aria-label", "Toggle track");
+                button.innerHTML = '<span class="material-icons" aria-hidden="true">timeline</span>';
+                if (mapTrackEnabled) button.classList.add("is-active");
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.on(button, "click", (event) => {{
+                  L.DomEvent.stop(event);
+                  mapTrackEnabled = !mapTrackEnabled;
+                  button.classList.toggle("is-active", mapTrackEnabled);
+                  generateMap();
+                }});
+                return container;
+              }};
+              trackControl.addTo(mapRef);
             }}
 
             mapLayer.clearLayers();
@@ -8724,6 +9125,10 @@ def analyze_results():
                 requireLocation: false
               }});
             }});
+            document.getElementById("chart_expand")?.addEventListener("click", toggleChartExpand);
+            document.getElementById("chart_reset_zoom")?.addEventListener("click", resetChartZoom);
+            document.getElementById("chart_toggle_line")?.addEventListener("click", toggleChartLine);
+            document.getElementById("chart_toggle_points")?.addEventListener("click", toggleChartPoints);
             document.getElementById("map_port_filter")?.addEventListener("change", () => {{
               updateTimeBounds({{
                 portValue: document.getElementById("map_port_filter")?.value || "",
@@ -8744,6 +9149,7 @@ def analyze_results():
             document.getElementById("generate_map")?.addEventListener("click", generateMap);
 
             updateOutlierUI();
+            updateChartToggleButtons();
             renderDefaultMap();
             setAnalyticsPanelsVisible(false);
             if (!pickBestLat() || !pickBestLon()) {{
