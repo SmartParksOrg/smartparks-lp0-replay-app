@@ -90,6 +90,7 @@ FIELD_META_PATH = os.path.join(BASE_DIR, "field-meta.json")
 CREDENTIALS_PATH = os.path.join(DATA_DIR, "credentials.json")
 UPLOAD_INDEX_PATH = os.path.join(DATA_DIR, "uploads.json")
 DECODE_RESULTS_INDEX_PATH = os.path.join(DATA_DIR, "decoded_results.json")
+DECODE_PROGRESS = {}
 AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 AUDIT_LOG_PATH = os.path.join(DATA_DIR, "audit.log")
 CSRF_SESSION_KEY = "_csrf_token"
@@ -1324,6 +1325,34 @@ STYLE_BLOCK = """
       gap: 16px;
       color: #0f172a;
       font-weight: 600;
+    }
+
+    [data-decode-overlay] .loading-card {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 14px;
+      width: min(520px, 90vw);
+      padding: 28px 30px;
+    }
+
+    [data-decode-overlay] .progress-track {
+      height: 14px;
+      margin-top: 0;
+      background: #e2e8f0;
+    }
+
+    [data-decode-overlay] .progress-fill {
+      transition: width 0.25s ease-out, background 0.25s ease-out;
+    }
+
+    [data-decode-overlay] .progress-meta {
+      font-size: 0.95rem;
+      color: #334155;
+    }
+
+    [data-decode-overlay] .progress-percent {
+      font-weight: 700;
+      color: #1d4ed8;
     }
 
     .spinner {
@@ -2922,11 +2951,82 @@ SCRIPT_BLOCK = """
 
       const decodeOverlay = document.querySelector("[data-decode-overlay]");
       if (decodeOverlay) {
+        const progressUrl = decodeOverlay.dataset.decodeProgressUrl || "";
+        const progressFill = decodeOverlay.querySelector("[data-decode-progress]");
+        const progressText = decodeOverlay.querySelector("[data-decode-progress-text]");
+        const progressPercent = decodeOverlay.querySelector("[data-decode-progress-percent]");
+        const makeProgressId = () => {
+          if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+          return `p_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        };
+        let decodePollTimer = null;
+        const stopDecodePoll = () => {
+          if (decodePollTimer) {
+            clearInterval(decodePollTimer);
+            decodePollTimer = null;
+          }
+        };
+        const startDecodePoll = (progressId) => {
+          if (!progressUrl || !progressId) return;
+          const poll = async () => {
+            try {
+              const response = await fetch(`${progressUrl}?progress_id=${encodeURIComponent(progressId)}`, {
+                credentials: "same-origin",
+                cache: "no-store"
+              });
+              if (!response.ok) return;
+              const data = await response.json();
+              const total = Number(data.total) || 0;
+              const completed = Number(data.completed) || 0;
+              const percent = total ? Math.min(100, Math.max(0, Math.round((completed / total) * 100))) : 0;
+              if (progressFill) {
+                const hue = Math.max(140, 215 - Math.round(percent * 0.6));
+                progressFill.style.width = `${percent}%`;
+                progressFill.style.background = `linear-gradient(90deg, hsl(${hue}, 85%, 45%), hsl(${hue + 15}, 85%, 55%))`;
+              }
+              if (progressPercent) progressPercent.textContent = `${percent}%`;
+              if (progressText) {
+                progressText.textContent = total
+                  ? `Decoding ${completed} of ${total}`
+                  : "Decoding…";
+              }
+            } catch (err) {
+              stopDecodePoll();
+            }
+          };
+          stopDecodePoll();
+          decodePollTimer = window.setInterval(poll, 500);
+          poll();
+        };
         document.querySelectorAll("form").forEach((formEl) => {
           formEl.addEventListener("submit", (event) => {
             const submitter = event.submitter;
             if (submitter && submitter.dataset.showDecodeLoader === "true") {
+              event.preventDefault();
+              const progressId = makeProgressId();
+              const progressInput = formEl.querySelector("[data-decode-progress-id]");
+              if (progressInput) progressInput.value = progressId;
+              if (progressFill) progressFill.style.width = "0%";
+              if (progressText) progressText.textContent = "Decoding…";
+              if (progressPercent) progressPercent.textContent = "0%";
               decodeOverlay.hidden = false;
+              startDecodePoll(progressId);
+              const actionUrl = formEl.getAttribute("action") || window.location.href;
+              fetch(actionUrl, {
+                method: formEl.method || "POST",
+                body: new FormData(formEl),
+                credentials: "same-origin"
+              }).then((response) => response.text())
+                .then((html) => {
+                  stopDecodePoll();
+                  document.open();
+                  document.write(html);
+                  document.close();
+                })
+                .catch(() => {
+                  stopDecodePoll();
+                  if (progressText) progressText.textContent = "Decode failed. Please retry.";
+                });
             }
           });
         });
@@ -3734,6 +3834,7 @@ DECODE_HTML = """
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="scan_token" value="{{ scan_token }}">
         <input type="hidden" name="action" value="decode">
+        <input type="hidden" name="progress_id" value="" data-decode-progress-id>
         <div>
           <label for="decoder_id">Payload decoder</label>
           <select id="decoder_id" name="decoder_id" required>
@@ -3873,10 +3974,15 @@ DECODE_HTML = """
         </div>
       </div>
     </div>
-    <div class="loading-overlay" data-decode-overlay hidden>
+    <div class="loading-overlay" data-decode-overlay data-decode-progress-url="{{ decode_progress_url }}" hidden>
       <div class="loading-card">
-        <div class="progress-bar" aria-hidden="true"></div>
-        <div>Decoding payloads…</div>
+        <div class="progress-track" aria-hidden="true">
+          <div class="progress-fill" data-decode-progress></div>
+        </div>
+        <div class="progress-meta">
+          <span data-decode-progress-text>Preparing decode…</span>
+          <span class="progress-percent" data-decode-progress-percent>0%</span>
+        </div>
       </div>
     </div>
 
@@ -4913,6 +5019,25 @@ def prune_decode_cache(now=None):
         del DECODE_CACHE[token]
 
 
+def set_decode_progress(progress_id, user_id, completed, total, done=False):
+    if not progress_id:
+        return
+    DECODE_PROGRESS[progress_id] = {
+        "user_id": user_id,
+        "completed": completed,
+        "total": total,
+        "done": done,
+        "ts": time.time(),
+    }
+
+
+def get_decode_progress(progress_id, user_id):
+    entry = DECODE_PROGRESS.get(progress_id)
+    if not entry or entry.get("user_id") != user_id:
+        return None
+    return entry
+
+
 def prune_replay_cache(now=None):
     if not REPLAY_CACHE:
         return
@@ -5380,6 +5505,7 @@ def render_decode_page(
         logo_url=logo_url,
         favicon_url=url_for("static", filename="favicon.ico"),
         decode_url=url_for("decode"),
+        decode_progress_url=url_for("decode_progress"),
         keys_url=url_for("device_keys"),
         scan_token=scan_token,
         summary_lines=summary_lines or [],
@@ -6942,18 +7068,22 @@ def decode():
 
     if action == "decode":
         allowed, retry_after = check_rate_limit("decode", user_id)
+        progress_id = request.form.get("progress_id", "").strip()
         if not allowed:
             summary_lines = [f"Rate limit exceeded. Try again in {retry_after} seconds."]
             result_class = "error"
+            set_decode_progress(progress_id, user_id, 0, 0, done=True)
         elif missing_keys:
             summary_lines = ["Missing keys. Save keys before decoding."]
             result_class = "error"
+            set_decode_progress(progress_id, user_id, 0, 0, done=True)
         else:
             try:
                 decoder_func = load_decoder(selected_decoder)
             except Exception as exc:
                 summary_lines = [f"Decoder error: {exc}"]
                 result_class = "error"
+                set_decode_progress(progress_id, user_id, 0, 0, done=True)
             else:
                 rows = []
                 decoded_columns = []
@@ -6961,6 +7091,8 @@ def decode():
                 row_index = 0
                 ok = 0
                 errors = 0
+                total_items = len(parsed)
+                set_decode_progress(progress_id, user_id, 0, total_items, done=False)
                 for idx, rec in enumerate(parsed, start=1):
                     rxpk = rec["rxpk"]
                     gateway_eui = rec["gateway_eui"]
@@ -7116,10 +7248,13 @@ def decode():
                                 "css": css,
                             }
                         )
+                    finally:
+                        set_decode_progress(progress_id, user_id, idx, total_items, done=False)
 
                 decode_results = rows
                 decode_columns = build_decode_columns_meta(decoded_columns, FIELD_META)
                 export_token = store_decode_result(rows)
+                set_decode_progress(progress_id, user_id, total_items, total_items, done=True)
                 summary_lines = [
                     "Decode complete.",
                     f"Decoded={ok}, errors={errors}",
@@ -7149,6 +7284,25 @@ def decode():
         selected_filename=selected_filename,
         export_token=export_token,
         back_url=back_url,
+    )
+
+
+@app.route("/decode-progress", methods=["GET"])
+@login_required
+def decode_progress():
+    user_id = get_user_id()
+    progress_id = request.args.get("progress_id", "").strip()
+    if not progress_id:
+        return jsonify({"error": "missing_progress_id"}), 400
+    entry = get_decode_progress(progress_id, user_id)
+    if not entry:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify(
+        {
+            "completed": entry.get("completed", 0),
+            "total": entry.get("total", 0),
+            "done": entry.get("done", False),
+        }
     )
 
 
