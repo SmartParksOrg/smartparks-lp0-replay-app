@@ -84,9 +84,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 DECODER_DIR = os.path.join(DATA_DIR, "decoders")
+DECODE_RESULTS_DIR = os.path.join(DATA_DIR, "decoded_results")
 BUILTIN_DECODER_DIR = os.path.join(BASE_DIR, "decoders")
+FIELD_META_PATH = os.path.join(BASE_DIR, "field-meta.json")
 CREDENTIALS_PATH = os.path.join(DATA_DIR, "credentials.json")
 UPLOAD_INDEX_PATH = os.path.join(DATA_DIR, "uploads.json")
+DECODE_RESULTS_INDEX_PATH = os.path.join(DATA_DIR, "decoded_results.json")
 AUTH_PATH = os.path.join(DATA_DIR, "auth.json")
 AUDIT_LOG_PATH = os.path.join(DATA_DIR, "audit.log")
 CSRF_SESSION_KEY = "_csrf_token"
@@ -773,6 +776,69 @@ STYLE_BLOCK = """
       gap: 0.6rem;
     }
 
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+      margin-top: 0.6rem;
+    }
+
+    .file-entry {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #f8fafc;
+      overflow: hidden;
+    }
+
+    .file-entry summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 0.75rem 0.9rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-weight: 600;
+      color: #0f172a;
+    }
+
+    .file-entry summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .file-entry[open] summary {
+      border-bottom: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .file-summary {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .file-meta {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .file-body {
+      padding: 0.75rem 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .file-controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.6rem;
+      align-items: center;
+      margin-top: 0.5rem;
+    }
+
     .decoder-item {
       display: flex;
       align-items: center;
@@ -812,6 +878,33 @@ STYLE_BLOCK = """
       align-items: center;
       flex-wrap: wrap;
       gap: 0.4rem;
+    }
+
+    .file-actions-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.5rem;
+    }
+
+    .saved-results {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+    }
+
+    .saved-entry {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .saved-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 600;
     }
 
     .code-block {
@@ -1565,6 +1658,393 @@ STYLE_BLOCK = """
       margin-top: 0.75rem;
     }
 
+    .table-actions form {
+      margin: 0;
+    }
+
+    .table-actions.decode-actions {
+      margin-bottom: 0.8rem;
+    }
+
+    .analyze-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.8rem;
+      margin: 0.8rem 0 1.2rem;
+    }
+
+    .stat-card {
+      padding: 1rem;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+    }
+
+    .stat-card h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .stat-card .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .analyze-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .chart-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1rem;
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+      margin-bottom: 1rem;
+    }
+
+    .chart-card summary {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      font-weight: 700;
+      margin-bottom: 0.6rem;
+      list-style: none;
+    }
+
+    .chart-card summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .chart-card summary::after {
+      content: "▸";
+      margin-left: auto;
+      transition: transform 0.15s ease;
+      opacity: 0.7;
+    }
+
+    .chart-card[open] summary::after {
+      transform: rotate(90deg);
+    }
+
+    .chart-card h3 {
+      margin: 0 0 0.6rem;
+      font-size: 1.05rem;
+    }
+
+    .bar-chart {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: minmax(70px, 1fr) 4fr minmax(36px, 64px);
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.9rem;
+    }
+
+    .bar-track {
+      height: 10px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .map-panel {
+      width: 100%;
+      height: 260px;
+      min-height: 260px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      position: relative;
+      overflow: hidden;
+      margin-top: 0.8rem;
+    }
+
+    .map-panel .map-svg {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .map-panel iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      position: absolute;
+      inset: 0;
+    }
+
+    .leaflet-container {
+      position: relative;
+      overflow: hidden;
+      outline: 0;
+      background: #e2e8f0;
+    }
+
+    .leaflet-pane,
+    .leaflet-tile,
+    .leaflet-marker-icon,
+    .leaflet-marker-shadow,
+    .leaflet-tile-container,
+    .leaflet-pane > svg,
+    .leaflet-pane > canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+
+    .leaflet-pane {
+      z-index: 400;
+    }
+
+    .leaflet-tile-pane {
+      z-index: 200;
+    }
+
+    .leaflet-overlay-pane {
+      z-index: 400;
+    }
+
+    .leaflet-shadow-pane {
+      z-index: 500;
+    }
+
+    .leaflet-marker-pane {
+      z-index: 600;
+    }
+
+    .leaflet-tooltip-pane {
+      z-index: 650;
+    }
+
+    .leaflet-popup-pane {
+      z-index: 700;
+    }
+
+    .leaflet-tile-container {
+      z-index: 200;
+    }
+
+    .leaflet-tile {
+      width: 256px;
+      height: 256px;
+    }
+
+    .leaflet-overlay-pane svg {
+      overflow: visible;
+    }
+
+    .leaflet-zoom-animated {
+      transform-origin: 0 0;
+    }
+
+    .leaflet-zoom-hide {
+      visibility: hidden;
+    }
+
+    .leaflet-control-container {
+      position: absolute;
+      z-index: 1000;
+      pointer-events: none;
+    }
+
+    .leaflet-control {
+      position: relative;
+      pointer-events: auto;
+    }
+
+    .leaflet-top {
+      top: 0;
+    }
+
+    .leaflet-bottom {
+      bottom: 0;
+    }
+
+    .leaflet-left {
+      left: 0;
+    }
+
+    .leaflet-right {
+      right: 0;
+    }
+
+    .map-point {
+      fill: #0f172a;
+      opacity: 0.8;
+    }
+
+    .map-legend {
+      position: absolute;
+      bottom: 0.7rem;
+      right: 0.7rem;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 10px;
+      padding: 0.35rem 0.6rem;
+      font-size: 0.75rem;
+      color: #0f172a;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+    }
+
+    .analytics-controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.8rem;
+      margin-top: 0.8rem;
+    }
+
+    .analytics-controls .full-row {
+      grid-column: 1 / -1;
+    }
+
+    .analytics-controls .control-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .analytics-inline {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .analytics-inline input {
+      min-width: 0;
+    }
+
+    .analytics-hint {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .chart-canvas {
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #f8fafc;
+      display: block;
+    }
+
+    .chart-wrapper {
+      height: 360px;
+      width: 100%;
+      margin-top: 0.8rem;
+    }
+
+    #stats_panel {
+      margin: 0.6rem 0 0.8rem;
+    }
+
+    .stats-card summary {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      font-weight: 600;
+      list-style: none;
+    }
+
+    .stats-card summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .stats-card summary::after {
+      content: "▸";
+      margin-left: auto;
+      transition: transform 0.15s ease;
+      opacity: 0.7;
+    }
+
+    .stats-card[open] summary::after {
+      transform: rotate(90deg);
+    }
+
+    #stats_box {
+      margin-top: 0.4rem;
+    }
+
+    .stats-table {
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 520px;
+      font-size: 0.9rem;
+    }
+
+    .stats-table td {
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .analysis-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .analysis-table th,
+    .analysis-table td {
+      padding: 0.4rem 0.5rem;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+    }
+
+    .analysis-table-wrapper {
+      max-height: 360px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    .map-controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.8rem;
+      margin-top: 0.6rem;
+    }
+
+    .map-controls .control-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .map-controls .full-row {
+      grid-column: 1 / -1;
+    }
+
+    .map-svg {
+      width: 100%;
+      height: 100%;
+    }
+
     .tag {
       display: inline-flex;
       align-items: center;
@@ -1729,7 +2209,7 @@ SCRIPT_BLOCK = """
       const numericColumns = new Set(
         (table.dataset.numericKeys || "").split(",").filter(Boolean)
       );
-      let sortKey = null;
+      let sortKey = table.dataset.defaultSortKey || null;
       let sortDir = 1;
 
       const limitSelect = section.querySelector("[data-table-limit]");
@@ -1842,7 +2322,9 @@ SCRIPT_BLOCK = """
           <div><strong>DevAddr:</strong> ${row.dataset.devaddr || "-"}</div>
           <div><strong>FCnt:</strong> ${row.dataset.fcnt || "-"}</div>
           <div><strong>FPort:</strong> ${row.dataset.fport || "-"}</div>
-          <div><strong>Time:</strong> ${row.dataset.time || "-"}</div>
+          <div><strong>Time parsed:</strong> ${row.dataset.time || "-"}</div>
+          <div><strong>Timestamp:</strong> ${row.dataset.timeUnix || "-"}</div>
+          <div><strong>Time (UTC):</strong> ${row.dataset.timeUtc || "-"}</div>
         `;
         payload.textContent = row.dataset.payload || "";
         const decodedRaw = row.dataset.decoded || "";
@@ -1856,6 +2338,66 @@ SCRIPT_BLOCK = """
         decoded.textContent = formatted || "";
         overlay.hidden = false;
       });
+    }
+
+    function initFileList() {
+      const list = document.querySelector("[data-file-list]");
+      if (!list) return;
+      const items = Array.from(list.querySelectorAll("[data-file-item]"));
+      const searchInput = document.querySelector("[data-file-search]");
+      const sortSelect = document.querySelector("[data-file-sort]");
+      let emptyState = list.querySelector("[data-file-empty]");
+
+      const parseDate = (value) => {
+        if (!value) return 0;
+        const cleaned = value.replace(" UTC", "Z").replace(" ", "T");
+        const parsed = Date.parse(cleaned);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+
+      const getName = (item) => (item.dataset.fileName || "").toLowerCase();
+      const getDate = (item) => parseDate(item.dataset.fileDate || "");
+
+      const applyList = () => {
+        const term = (searchInput?.value || "").toLowerCase().trim();
+        const sortValue = sortSelect?.value || "date_desc";
+        let filtered = items.filter((item) => {
+          if (!term) return true;
+          return getName(item).includes(term);
+        });
+
+        filtered = filtered.sort((a, b) => {
+          if (sortValue === "name_asc") {
+            return getName(a).localeCompare(getName(b));
+          }
+          if (sortValue === "name_desc") {
+            return getName(b).localeCompare(getName(a));
+          }
+          if (sortValue === "date_asc") {
+            return getDate(a) - getDate(b);
+          }
+          return getDate(b) - getDate(a);
+        });
+
+        const fragment = document.createDocumentFragment();
+        filtered.forEach((item) => fragment.appendChild(item));
+        list.innerHTML = "";
+        list.appendChild(fragment);
+
+        if (!filtered.length) {
+          if (!emptyState) {
+            emptyState = document.createElement("div");
+            emptyState.className = "hint";
+            emptyState.dataset.fileEmpty = "true";
+            emptyState.textContent = "No matching files.";
+          }
+          list.appendChild(emptyState);
+        }
+      };
+
+      searchInput?.addEventListener("input", applyList);
+      sortSelect?.addEventListener("change", applyList);
+      applyList();
     }
 
     function formatTimeParts(value, length) {
@@ -2086,6 +2628,7 @@ SCRIPT_BLOCK = """
       initSortableTable(document.querySelector("[data-decode-section]"));
       initTruncation(document.querySelector("[data-decode-section]"));
       initDetailOverlay(document.querySelector("[data-decode-section]"));
+      initFileList();
       initReplayStream();
       document.querySelectorAll("[data-toggle-visibility]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -3022,6 +3565,25 @@ DECODE_HTML = """
       {% if decode_results %}
       <div class="section-divider"></div>
       <div class="log-wrapper" data-decode-section>
+        <div class="table-actions decode-actions">
+          <form method="POST" action="{{ decode_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="scan_token" value="{{ scan_token }}">
+            <input type="hidden" name="action" value="save_results">
+            <input type="hidden" name="decoder_id" value="{{ selected_decoder }}">
+            <input type="hidden" name="export_token" value="{{ export_token }}">
+            <button type="submit" class="secondary-button">Save results</button>
+          </form>
+          {% if export_csv_url %}
+          <a class="secondary-button" href="{{ export_csv_url }}">Export CSV</a>
+          {% endif %}
+          {% if export_json_url %}
+          <a class="secondary-button" href="{{ export_json_url }}">Export JSON</a>
+          {% endif %}
+          {% if analyze_url %}
+          <a class="secondary-button" href="{{ analyze_url }}">Analyze results</a>
+          {% endif %}
+        </div>
         <details class="log-block" open>
           <summary>Decoded payloads</summary>
           <div class="log-controls">
@@ -3036,7 +3598,7 @@ DECODE_HTML = """
             </label>
           </div>
           <div style="overflow-x: auto;">
-            <table class="log-table" data-sortable-table data-numeric-keys="index,fcnt,fport">
+            <table class="log-table" data-sortable-table data-default-sort-key="timeUnix" data-numeric-keys="index,fcnt,fport,timeUnix">
               <thead>
                 <tr>
                   <th><button type="button" data-sort-key="index">#</button></th>
@@ -3044,7 +3606,12 @@ DECODE_HTML = """
                   <th><button type="button" data-sort-key="devaddr">DevAddr</button></th>
                   <th><button type="button" data-sort-key="fcnt">FCnt</button></th>
                   <th><button type="button" data-sort-key="fport">FPort</button></th>
-                  <th><button type="button" data-sort-key="time">Time</button></th>
+                  <th><button type="button" data-sort-key="time">Time parsed</button></th>
+                  <th><button type="button" data-sort-key="timeUnix">Timestamp</button></th>
+                  <th>Time (UTC)</th>
+                  {% for column in decode_columns %}
+                  <th>{{ column.label }}</th>
+                  {% endfor %}
                   <th>Payload</th>
                   <th>Decoded</th>
                 </tr>
@@ -3058,6 +3625,8 @@ DECODE_HTML = """
                     data-fcnt="{{ row.fcnt }}"
                     data-fport="{{ row.fport }}"
                     data-time="{{ row.time }}"
+                    data-time-unix="{{ row.time_unix }}"
+                    data-time-utc="{{ row.time_utc }}"
                     data-payload="{{ row.payload_hex | e }}"
                     data-decoded="{{ row.decoded_preview | e }}">
                   <td>{{ row.index }}</td>
@@ -3066,6 +3635,11 @@ DECODE_HTML = """
                   <td>{{ row.fcnt }}</td>
                   <td>{{ row.fport }}</td>
                   <td>{{ row.time }}</td>
+                  <td>{{ row.time_unix }}</td>
+                  <td>{{ row.time_utc }}</td>
+                  {% for column in decode_columns %}
+                  <td>{{ row.decoded_flat.get(column.key, "") }}</td>
+                  {% endfor %}
                   <td>
                     <button type="button" class="cell-action" data-detail-trigger>
                       Payload ({{ row.payload_hex|length }} bytes)
@@ -3082,10 +3656,6 @@ DECODE_HTML = """
             </table>
           </div>
         </details>
-      </div>
-      <div class="table-actions">
-        <a class="secondary-button" href="{{ export_csv_url }}">Export CSV</a>
-        <a class="secondary-button" href="{{ export_json_url }}">Export JSON</a>
       </div>
       {% endif %}
     </div>
@@ -3551,6 +4121,7 @@ def ensure_data_dirs():
     os.makedirs(DATA_DIR, mode=0o700, exist_ok=True)
     os.makedirs(UPLOAD_DIR, mode=0o700, exist_ok=True)
     os.makedirs(DECODER_DIR, mode=0o700, exist_ok=True)
+    os.makedirs(DECODE_RESULTS_DIR, mode=0o700, exist_ok=True)
     os.makedirs(BUILTIN_DECODER_DIR, exist_ok=True)
 
 
@@ -3654,6 +4225,62 @@ def delete_stored_log(log_id):
     if removed_path and os.path.exists(removed_path):
         os.remove(removed_path)
     return removed_path is not None
+
+
+def list_saved_decode_results():
+    entries = load_json_file(DECODE_RESULTS_INDEX_PATH, [])
+    available = []
+    for entry in entries:
+        if os.path.exists(entry.get("path", "")):
+            available.append(entry)
+    return available
+
+
+def get_saved_decode_result_entry(saved_id):
+    for entry in list_saved_decode_results():
+        if entry.get("id") == saved_id:
+            return entry
+    return None
+
+
+def load_saved_decode_rows(saved_id):
+    entry = get_saved_decode_result_entry(saved_id)
+    if not entry:
+        return None, None
+    try:
+        with open(entry["path"], "r", encoding="utf-8") as handle:
+            rows = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return entry, None
+    return entry, rows
+
+
+def store_saved_decode_result(rows, log_id, filename, decoder_id, owner):
+    ensure_data_dirs()
+    token = secrets.token_urlsafe(8)
+    stored_name = f"{token}_decoded.json"
+    path = os.path.join(DECODE_RESULTS_DIR, stored_name)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(rows, handle, indent=2, ensure_ascii=True)
+    size = 0
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = 0
+    entry = {
+        "id": token,
+        "log_id": log_id,
+        "filename": filename,
+        "path": path,
+        "size": size,
+        "decoder_id": decoder_id,
+        "owner": owner,
+        "created_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+    }
+    entries = load_json_file(DECODE_RESULTS_INDEX_PATH, [])
+    entries.insert(0, entry)
+    save_json_file(DECODE_RESULTS_INDEX_PATH, entries[:200])
+    return entry
 
 
 def scan_stored_log(log_id):
@@ -3861,6 +4488,122 @@ def parse_uplink(rxpk):
         "fport": fport,
         "frm_payload": frm_payload,
     }
+
+
+def format_unix_utc(timestamp):
+    if timestamp is None or timestamp == "":
+        return ""
+    try:
+        ts = int(timestamp)
+    except (TypeError, ValueError):
+        return ""
+    try:
+        return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def unpack_port29_messages(payload):
+    if not payload:
+        return []
+    messages = []
+    i = 0
+    msg_len = len(payload)
+    while i < msg_len - 7:
+        if i + 3 > msg_len:
+            raise ValueError("Port 29 message header incomplete.")
+        port = payload[i]
+        length = payload[i + 2]
+        end = i + length + 3
+        if end > msg_len:
+            raise ValueError("Port 29 message length exceeds payload.")
+        msg = payload[i + 1:end]
+        i = end
+        if i + 4 > msg_len:
+            raise ValueError("Port 29 timestamp missing.")
+        timestamp = (
+            (payload[i + 3] << 24)
+            | (payload[i + 2] << 16)
+            | (payload[i + 1] << 8)
+            | payload[i]
+        ) & 0xFFFFFFFF
+        i += 4
+        messages.append({"port": port, "payload": bytes(msg), "timestamp": timestamp})
+    return messages
+
+
+def flatten_decoded(value, prefix="data", out=None):
+    if out is None:
+        out = {}
+    if value is None:
+        return out
+    if isinstance(value, dict):
+        for key, subvalue in value.items():
+            key_str = str(key)
+            next_prefix = f"{prefix}.{key_str}" if prefix else key_str
+            flatten_decoded(subvalue, next_prefix, out)
+        return out
+    if isinstance(value, (list, tuple)):
+        for idx, subvalue in enumerate(value):
+            next_prefix = f"{prefix}.{idx}" if prefix else str(idx)
+            flatten_decoded(subvalue, next_prefix, out)
+        return out
+    out[prefix] = value
+    return out
+
+
+def load_field_meta():
+    if not os.path.exists(FIELD_META_PATH):
+        return {}
+    try:
+        with open(FIELD_META_PATH, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def extract_field_key(column):
+    if column.startswith("data."):
+        return column.split(".", 1)[1]
+    return column
+
+
+def build_decode_columns_meta(columns, field_meta):
+    columns_set = set(columns)
+    ordered = []
+    used = set()
+    for key in field_meta.keys():
+        col = f"data.{key}"
+        if col in columns_set:
+            ordered.append(col)
+            used.add(col)
+    for col in columns:
+        if col not in used:
+            ordered.append(col)
+            used.add(col)
+    meta_list = []
+    for col in ordered:
+        field_key = extract_field_key(col)
+        meta = field_meta.get(field_key, {})
+        label = field_key
+        unit = meta.get("unit") or {}
+        symbol = unit.get("symbol")
+        if symbol:
+            label = f"{field_key} ({symbol})"
+        meta_list.append(
+            {
+                "key": col,
+                "label": label,
+                "group": meta.get("group", ""),
+                "precision": meta.get("precision"),
+                "isInteger": meta.get("isInteger"),
+            }
+        )
+    return meta_list
+
+
+FIELD_META = load_field_meta()
 
 
 def lorawan_decrypt_payload(key, devaddr_le, fcnt, payload, direction=0):
@@ -4418,12 +5161,14 @@ def render_decode_page(
     decoders=None,
     selected_decoder="raw",
     decode_results=None,
+    decode_columns=None,
     selected_filename="",
     export_token="",
     back_url="",
 ):
     export_csv_url = url_for("export_results", fmt="csv", token=export_token) if export_token else ""
     export_json_url = url_for("export_results", fmt="json", token=export_token) if export_token else ""
+    analyze_url = url_for("analyze_results", token=export_token, scan_token=scan_token) if export_token else ""
     logo_url = url_for("static", filename="company_logo.png")
     return render_template_string(
         DECODE_HTML,
@@ -4442,9 +5187,12 @@ def render_decode_page(
         decoders=decoders or [],
         selected_decoder=selected_decoder,
         decode_results=decode_results,
+        decode_columns=decode_columns or [],
         selected_filename=selected_filename,
         export_csv_url=export_csv_url,
         export_json_url=export_json_url,
+        analyze_url=analyze_url,
+        export_token=export_token,
         back_url=back_url or url_for("index"),
         **nav_context("decoders", logo_url),
     )
@@ -4781,6 +5529,12 @@ def keys_redirect():
 def files_page():
     stored_logs = list_stored_logs()
     csrf_input = get_csrf_input()
+    saved_by_log = {}
+    for entry in list_saved_decode_results():
+        log_id = entry.get("log_id") or ""
+        if not log_id:
+            continue
+        saved_by_log.setdefault(log_id, []).append(entry)
     if stored_logs:
         items = []
         for log in stored_logs:
@@ -4791,12 +5545,38 @@ def files_page():
             download_url = url_for("download_log_file", log_id=log["id"])
             decode_url = url_for("start_decode_from_file", log_id=log["id"])
             replay_url = url_for("start_replay_from_file", log_id=log["id"])
+            saved_entries = saved_by_log.get(log["id"], [])
+            saved_html = ""
+            if saved_entries:
+                saved_items = []
+                for saved in saved_entries:
+                    created_at = html.escape(saved.get("created_at", ""))
+                    decoder_id = html.escape(saved.get("decoder_id", ""))
+                    decoder_meta = f"<span class=\"decoder-meta\">{decoder_id}</span>" if decoder_id else ""
+                    analyze_url = url_for("analyze_results", saved_id=saved.get("id", ""))
+                    export_csv_url = url_for("export_saved_results", fmt="csv", saved_id=saved.get("id", ""))
+                    export_json_url = url_for("export_saved_results", fmt="json", saved_id=saved.get("id", ""))
+                    saved_items.append(
+                        f"<div class=\"saved-entry\">"
+                        f"<span class=\"saved-label\">Saved results ({created_at})</span>"
+                        f"<a class=\"secondary-button\" href=\"{analyze_url}\">Analyze</a>"
+                        f"<a class=\"secondary-button\" href=\"{export_csv_url}\">CSV</a>"
+                        f"<a class=\"secondary-button\" href=\"{export_json_url}\">JSON</a>"
+                        f"{decoder_meta}"
+                        f"</div>"
+                    )
+                saved_html = f"<div class=\"saved-results\">{''.join(saved_items)}</div>"
             items.append(
-                f"<li class=\"decoder-item\">"
-                f"<div>"
-                f"<a class=\"decoder-link\" href=\"{view_url}\">{filename}</a>"
-                f"<span class=\"decoder-meta\">({uploaded_at})</span>"
+                f"<details class=\"file-entry\" data-file-item "
+                f"data-file-name=\"{filename.lower()}\" data-file-date=\"{uploaded_at}\">"
+                f"<summary>"
+                f"<div class=\"file-summary\">"
+                f"<span class=\"decoder-link\">{filename}</span>"
+                f"<span class=\"file-meta\">{uploaded_at}</span>"
                 f"</div>"
+                f"<span class=\"file-meta\">Actions</span>"
+                f"</summary>"
+                f"<div class=\"file-body\">"
                 f"<div class=\"file-actions\">"
                 f"<a class=\"secondary-button\" href=\"{view_url}\">View</a>"
                 f"<a class=\"secondary-button\" href=\"{download_url}\">Download</a>"
@@ -4807,9 +5587,11 @@ def files_page():
                 f"data-delete-file=\"{log_id}\" "
                 f"title=\"Remove log file\" aria-label=\"Remove log file\">🗑<span>Remove</span></button>"
                 f"</div>"
-                f"</li>"
+                f"{saved_html}"
+                f"</div>"
+                f"</details>"
             )
-        stored_html = f"<ul class=\"decoder-list\">{''.join(items)}</ul>"
+        stored_html = f"<div class=\"file-list\" data-file-list>{''.join(items)}</div>"
     else:
         stored_html = "<div class=\"hint\">No stored log files yet.</div>"
 
@@ -4823,6 +5605,21 @@ def files_page():
           <label>Stored log files</label>
         </div>
         <div class="hint">Review, download, and process previously uploaded logs.</div>
+        <div class="file-controls">
+          <div>
+            <label for="file_search">Search files</label>
+            <input id="file_search" type="text" placeholder="Search by filename..." data-file-search>
+          </div>
+          <div>
+            <label for="file_sort">Sort by</label>
+            <select id="file_sort" data-file-sort>
+              <option value="date_desc">Newest first</option>
+              <option value="date_asc">Oldest first</option>
+              <option value="name_asc">Filename (A-Z)</option>
+              <option value="name_desc">Filename (Z-A)</option>
+            </select>
+          </div>
+        </div>
         {stored_html}
       </div>
       <div class="section-divider"></div>
@@ -5800,7 +6597,8 @@ def decode():
     decoders = list_decoders()
     selected_decoder = request.form.get("decoder_id", "raw")
     decode_results = None
-    export_token = ""
+    decode_columns = []
+    export_token = request.form.get("export_token", "").strip()
     result_class = "success"
 
     action = request.form.get("action", "").strip()
@@ -5843,6 +6641,7 @@ def decode():
                                 decoders=decoders,
                                 selected_decoder=selected_decoder,
                                 decode_results=decode_results,
+                                decode_columns=decode_columns,
                                 selected_filename=selected_filename,
                                 export_token=export_token,
                                 back_url=back_url,
@@ -5864,10 +6663,46 @@ def decode():
             decoders=decoders,
             selected_decoder=selected_decoder,
             decode_results=decode_results,
+            decode_columns=decode_columns,
             selected_filename=selected_filename,
             export_token=export_token,
             back_url=back_url,
         )
+
+    if action == "save_results":
+        cached_rows = get_decode_result(export_token) if export_token else None
+        if not cached_rows:
+            summary_lines = ["Decoded results not found. Please decode again."]
+            result_class = "error"
+        else:
+            columns = []
+            seen = set()
+            for row in cached_rows:
+                flat = row.get("decoded_flat") or {}
+                for key in flat.keys():
+                    if key not in seen:
+                        seen.add(key)
+                        columns.append(key)
+            decode_results = cached_rows
+            decode_columns = build_decode_columns_meta(columns, FIELD_META)
+            entry = store_saved_decode_result(
+                cached_rows,
+                stored_log_id,
+                selected_filename,
+                selected_decoder,
+                user_id,
+            )
+            summary_lines = [f"Results saved for {entry['filename']}."]
+            result_class = "success"
+            audit_log(
+                "decode_saved",
+                {
+                    "saved_id": entry["id"],
+                    "log_id": stored_log_id,
+                    "filename": entry["filename"],
+                    "decoder_id": selected_decoder,
+                },
+            )
 
     if action == "upload_decoder":
         if not DECODER_UPLOADS_ENABLED:
@@ -5913,6 +6748,9 @@ def decode():
                 result_class = "error"
             else:
                 rows = []
+                decoded_columns = []
+                seen_columns = set()
+                row_index = 0
                 ok = 0
                 errors = 0
                 for idx, rec in enumerate(parsed, start=1):
@@ -5920,16 +6758,9 @@ def decode():
                     gateway_eui = rec["gateway_eui"]
                     time_str = rxpk.get("time", "")
                     freq = rxpk.get("freq", "")
-                    status = "Decoded"
-                    css = "ok"
-                    payload_hex = ""
-                    decoded_preview = ""
-                    decoded_data = None
-                    decoded_raw = None
                     devaddr = ""
                     fcnt = ""
                     fport = ""
-                    error_msg = ""
 
                     try:
                         uplink = parse_uplink(rxpk)
@@ -5944,40 +6775,142 @@ def decode():
                             key, uplink["devaddr_le"], uplink["fcnt"], uplink["frm_payload"], direction=0
                         )
                         payload_hex = decrypted.hex().upper()
-                        decoded_raw = decoder_func(decrypted, uplink["fport"], devaddr, rxpk)
-                        if isinstance(decoded_raw, dict) and "data" in decoded_raw and len(decoded_raw) <= 3:
-                            decoded_data = decoded_raw.get("data")
+                        if uplink["fport"] == 29:
+                            messages = unpack_port29_messages(decrypted)
+                            if not messages:
+                                raise ValueError("Port 29 payload contained no messages.")
+                            for message in messages:
+                                row_index += 1
+                                status = "Decoded"
+                                css = "ok"
+                                decoded_data = None
+                                decoded_raw = None
+                                decoded_preview = ""
+                                error_msg = ""
+                                time_unix = message.get("timestamp")
+                                time_utc = format_unix_utc(time_unix)
+                                message_payload = message.get("payload", b"")
+                                message_port = message.get("port")
+                                message_payload_hex = message_payload.hex().upper()
+                                try:
+                                    if message_port == 29:
+                                        decoded_raw = None
+                                        decoded_data = {}
+                                    else:
+                                        decoded_raw = decoder_func(message_payload, message_port, devaddr, rxpk)
+                                        if isinstance(decoded_raw, dict) and "data" in decoded_raw and len(decoded_raw) <= 3:
+                                            decoded_data = decoded_raw.get("data")
+                                        else:
+                                            decoded_data = decoded_raw
+                                    decoded_preview = json.dumps(decoded_data, ensure_ascii=True)
+                                    ok += 1
+                                except Exception as exc:
+                                    status = "Error"
+                                    css = "err"
+                                    error_msg = str(exc)
+                                    decoded_preview = error_msg
+                                    errors += 1
+
+                                decoded_flat = flatten_decoded(decoded_data)
+                                for key in decoded_flat.keys():
+                                    if key not in seen_columns:
+                                        seen_columns.add(key)
+                                        decoded_columns.append(key)
+
+                                rows.append(
+                                    {
+                                        "index": row_index,
+                                        "status": status,
+                                        "devaddr": devaddr,
+                                        "fcnt": fcnt,
+                                        "fport": message_port if message_port is not None else "",
+                                        "time": time_str,
+                                        "time_unix": time_unix if time_unix is not None else "",
+                                        "time_utc": time_utc,
+                                        "gateway_eui": gateway_eui,
+                                        "freq": freq,
+                                        "payload_hex": message_payload_hex,
+                                        "decoded": decoded_data,
+                                        "decoded_raw": decoded_raw,
+                                        "decoded_flat": decoded_flat,
+                                        "error": error_msg,
+                                        "decoded_preview": decoded_preview,
+                                        "css": css,
+                                    }
+                                )
                         else:
-                            decoded_data = decoded_raw
-                        decoded_preview = json.dumps(decoded_data, ensure_ascii=True)
-                        ok += 1
+                            row_index += 1
+                            status = "Decoded"
+                            css = "ok"
+                            decoded_data = None
+                            decoded_raw = None
+                            decoded_preview = ""
+                            error_msg = ""
+                            decoded_raw = decoder_func(decrypted, uplink["fport"], devaddr, rxpk)
+                            if isinstance(decoded_raw, dict) and "data" in decoded_raw and len(decoded_raw) <= 3:
+                                decoded_data = decoded_raw.get("data")
+                            else:
+                                decoded_data = decoded_raw
+                            decoded_preview = json.dumps(decoded_data, ensure_ascii=True)
+                            decoded_flat = flatten_decoded(decoded_data)
+                            for key in decoded_flat.keys():
+                                if key not in seen_columns:
+                                    seen_columns.add(key)
+                                    decoded_columns.append(key)
+                            ok += 1
+
+                            rows.append(
+                                {
+                                    "index": row_index,
+                                    "status": status,
+                                    "devaddr": devaddr,
+                                    "fcnt": fcnt,
+                                    "fport": fport,
+                                    "time": time_str,
+                                    "time_unix": "",
+                                    "time_utc": "",
+                                    "gateway_eui": gateway_eui,
+                                    "freq": freq,
+                                    "payload_hex": payload_hex,
+                                    "decoded": decoded_data,
+                                    "decoded_raw": decoded_raw,
+                                    "decoded_flat": decoded_flat,
+                                    "error": error_msg,
+                                    "decoded_preview": decoded_preview,
+                                    "css": css,
+                                }
+                            )
                     except Exception as exc:
+                        row_index += 1
                         status = "Error"
                         css = "err"
                         error_msg = str(exc)
                         decoded_preview = error_msg
                         errors += 1
-
-                    rows.append(
-                        {
-                            "index": idx,
-                            "status": status,
-                            "devaddr": devaddr,
-                            "fcnt": fcnt,
-                            "fport": fport,
-                            "time": time_str,
-                            "gateway_eui": gateway_eui,
-                            "freq": freq,
-                            "payload_hex": payload_hex,
-                            "decoded": decoded_data,
-                            "decoded_raw": decoded_raw,
-                            "error": error_msg,
-                            "decoded_preview": decoded_preview,
-                            "css": css,
-                        }
-                    )
+                        rows.append(
+                            {
+                                "index": row_index,
+                                "status": status,
+                                "devaddr": devaddr,
+                                "fcnt": fcnt,
+                                "fport": fport,
+                                "time": time_str,
+                                "time_unix": "",
+                                "time_utc": "",
+                                "gateway_eui": gateway_eui,
+                                "freq": freq,
+                                "payload_hex": "",
+                                "decoded": None,
+                                "decoded_raw": None,
+                                "decoded_flat": {},
+                                "error": error_msg,
+                                "decoded_preview": decoded_preview,
+                                "css": css,
+                            }
+                        )
 
                 decode_results = rows
+                decode_columns = build_decode_columns_meta(decoded_columns, FIELD_META)
                 export_token = store_decode_result(rows)
                 summary_lines = [
                     "Decode complete.",
@@ -6004,6 +6937,7 @@ def decode():
         decoders=decoders,
         selected_decoder=selected_decoder,
         decode_results=decode_results,
+        decode_columns=decode_columns,
         selected_filename=selected_filename,
         export_token=export_token,
         back_url=back_url,
@@ -6142,6 +7076,50 @@ def device_keys():
     )
 
 
+def build_export_rows(rows):
+    decoded_columns = []
+    seen_columns = set()
+    for row in rows:
+        flat = row.get("decoded_flat") or {}
+        for key in flat.keys():
+            if key not in seen_columns:
+                seen_columns.add(key)
+                decoded_columns.append(key)
+    columns_meta = build_decode_columns_meta(decoded_columns, FIELD_META)
+    ordered_columns = [entry["key"] for entry in columns_meta]
+
+    def normalize_flat_value(value):
+        if value is None:
+            return ""
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        return json.dumps(value, ensure_ascii=True)
+
+    export_rows = []
+    for row in rows:
+        export_row = {
+            "index": row.get("index"),
+            "status": row.get("status"),
+            "devaddr": row.get("devaddr"),
+            "fcnt": row.get("fcnt"),
+            "fport": row.get("fport"),
+            "time": row.get("time"),
+            "time_unix": row.get("time_unix"),
+            "time_utc": row.get("time_utc"),
+            "gateway_eui": row.get("gateway_eui"),
+            "freq": row.get("freq"),
+            "payload_hex": row.get("payload_hex"),
+            "decoded": json.dumps(row.get("decoded"), ensure_ascii=True) if row.get("decoded") is not None else "",
+            "decoded_raw": json.dumps(row.get("decoded_raw"), ensure_ascii=True) if row.get("decoded_raw") is not None else "",
+            "error": row.get("error"),
+        }
+        flat = row.get("decoded_flat") or {}
+        for key in ordered_columns:
+            export_row[key] = normalize_flat_value(flat.get(key))
+        export_rows.append(export_row)
+    return export_rows
+
+
 @app.route("/export/<fmt>", methods=["GET"])
 @login_required
 def export_results(fmt):
@@ -6150,24 +7128,9 @@ def export_results(fmt):
     if not rows:
         return "No export data available.", 404
 
-    export_rows = []
-    for row in rows:
-        export_rows.append(
-            {
-                "index": row.get("index"),
-                "status": row.get("status"),
-                "devaddr": row.get("devaddr"),
-                "fcnt": row.get("fcnt"),
-                "fport": row.get("fport"),
-                "time": row.get("time"),
-                "gateway_eui": row.get("gateway_eui"),
-                "freq": row.get("freq"),
-                "payload_hex": row.get("payload_hex"),
-                "decoded": json.dumps(row.get("decoded"), ensure_ascii=True) if row.get("decoded") is not None else "",
-                "decoded_raw": json.dumps(row.get("decoded_raw"), ensure_ascii=True) if row.get("decoded_raw") is not None else "",
-                "error": row.get("error"),
-            }
-        )
+    export_rows = build_export_rows(rows)
+    if not export_rows:
+        return "No export data available.", 404
 
     if fmt == "json":
         buffer = io.BytesIO(json.dumps(export_rows, indent=2).encode("utf-8"))
@@ -6185,6 +7148,1632 @@ def export_results(fmt):
         return send_file(csv_bytes, mimetype="text/csv", as_attachment=True, download_name="decoded_payloads.csv")
 
     return "Unsupported export format.", 400
+
+
+@app.route("/results/export/<fmt>", methods=["GET"])
+@login_required
+def export_saved_results(fmt):
+    saved_id = request.args.get("saved_id", "").strip()
+    entry, rows = load_saved_decode_rows(saved_id)
+    if not entry or rows is None:
+        return "Saved results not found.", 404
+
+    export_rows = build_export_rows(rows)
+    if not export_rows:
+        return "No export data available.", 404
+
+    base_name = secure_filename(entry.get("filename") or "decoded_payloads") or "decoded_payloads"
+    if fmt == "json":
+        buffer = io.BytesIO(json.dumps(export_rows, indent=2).encode("utf-8"))
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=f"decoded_{base_name}.json",
+        )
+
+    if fmt == "csv":
+        buffer = io.StringIO()
+        fieldnames = list(export_rows[0].keys())
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(export_rows)
+        csv_bytes = io.BytesIO(buffer.getvalue().encode("utf-8"))
+        csv_bytes.seek(0)
+        return send_file(
+            csv_bytes,
+            mimetype="text/csv",
+            as_attachment=True,
+            download_name=f"decoded_{base_name}.csv",
+        )
+
+    return "Unsupported export format.", 400
+
+
+@app.route("/analyze", methods=["GET"])
+@login_required
+def analyze_results():
+    token = request.args.get("token", "").strip()
+    saved_id = request.args.get("saved_id", "").strip()
+    scan_token = request.args.get("scan_token", "").strip()
+    rows = None
+    source_filename = ""
+
+    if saved_id:
+        entry, rows = load_saved_decode_rows(saved_id)
+        if not entry or rows is None:
+            return render_simple_page(
+                title="Analyze",
+                subtitle="Explore decoded payloads.",
+                body_html="<div class=\"result error\">Saved results not found.</div>",
+                active_page="files",
+                page_title="Analyze results",
+            )
+        source_filename = entry.get("filename") or "Saved results"
+    elif token:
+        rows = get_decode_result(token)
+        if not rows:
+            return render_simple_page(
+                title="Analyze",
+                subtitle="Explore decoded payloads.",
+                body_html="<div class=\"result error\">Decoded results not found.</div>",
+                active_page="decoders",
+                page_title="Analyze results",
+            )
+        if scan_token:
+            cached = get_scan_result(scan_token)
+            if cached:
+                _parsed, _gateways, _devaddrs, scan_filename, _stored_log_id = cached
+                source_filename = scan_filename
+    else:
+        return render_simple_page(
+            title="Analyze",
+            subtitle="Explore decoded payloads.",
+            body_html="<div class=\"result error\">No decoded results selected.</div>",
+            active_page="files",
+            page_title="Analyze results",
+        )
+
+    if not source_filename:
+        source_filename = "Decoded results"
+
+    analyze_payload = json.dumps(rows or [], ensure_ascii=True).replace("</", "<\\/")
+    field_meta_payload = json.dumps(FIELD_META or {}, ensure_ascii=True).replace("</", "<\\/")
+    body_html = f"""
+      <style>
+        .card .subtitle {{ margin-bottom: 1rem; }}
+      </style>
+      <div class="result error" id="analysis_error" style="display:none;"></div>
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+      <script type="application/json" id="analysis_payload">{analyze_payload}</script>
+      <script type="application/json" id="analysis_field_meta">{field_meta_payload}</script>
+      <details class="chart-card" open>
+        <summary>Decoded message summary</summary>
+        <div class="analytics-hint" id="message_summary_hint"></div>
+        <div class="analysis-table-wrapper" style="margin-top:0.6rem;">
+          <table class="analysis-table">
+            <thead><tr><th>Port</th><th>Message type</th><th>Messages</th></tr></thead>
+            <tbody id="message_summary_body"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <details class="chart-card" open>
+        <summary>Simple analytics (tables, charts & statistics)</summary>
+        <div class="analytics-controls">
+          <div class="control-row">
+            <label for="field_select">Field (X)</label>
+            <select id="field_select"></select>
+          </div>
+          <div class="control-row">
+            <label for="field_select_2">Second field (line - optional)</label>
+            <select id="field_select_2">
+              <option value="">-</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label for="field_select_y">Field (Y, scatter - optional)</label>
+            <select id="field_select_y">
+              <option value="">-</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label for="bucket_select">Time bucket</label>
+            <select id="bucket_select">
+              <option value="none" selected>None</option>
+              <option value="minute">Minute</option>
+              <option value="hour">Hour</option>
+              <option value="day">Day</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label for="agg_select">Aggregation</label>
+            <select id="agg_select">
+              <option value="mean" selected>Average</option>
+              <option value="min">Min</option>
+              <option value="max">Max</option>
+              <option value="sum">Sum</option>
+              <option value="count">Count</option>
+              <option value="median">Median</option>
+              <option value="stdev">Std.dev.</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label for="chart_type">Chart type</label>
+            <select id="chart_type">
+              <option value="line" selected>Line (time series)</option>
+              <option value="bar">Bar</option>
+              <option value="scatter">Scatter (X vs Y)</option>
+              <option value="hist">Histogram</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label for="port_filter">Filter: Port</label>
+            <input id="port_filter" type="text" placeholder="e.g. 15">
+          </div>
+          <div class="control-row">
+            <label for="start_time">From</label>
+            <input id="start_time" type="datetime-local">
+          </div>
+          <div class="control-row">
+            <label for="end_time">To</label>
+            <input id="end_time" type="datetime-local">
+          </div>
+          <div class="control-row">
+            <label>Outlier filter (X)</label>
+            <div class="analytics-inline">
+              <span class="analytics-hint">min</span>
+              <input id="min_x" type="number" step="any" placeholder="auto">
+              <span class="analytics-hint">max</span>
+              <input id="max_x" type="number" step="any" placeholder="auto">
+            </div>
+            <div class="analytics-hint" id="x_range_hint"></div>
+          </div>
+          <div class="control-row" id="outlier_y_wrap" style="display:none;">
+            <label>Outlier filter (Y)</label>
+            <div class="analytics-inline">
+              <span class="analytics-hint">min</span>
+              <input id="min_y" type="number" step="any" placeholder="auto">
+              <span class="analytics-hint">max</span>
+              <input id="max_y" type="number" step="any" placeholder="auto">
+            </div>
+            <div class="analytics-hint" id="y_range_hint"></div>
+          </div>
+          <div class="control-row full-row">
+            <label class="analytics-hint">&nbsp;</label>
+            <button type="button" class="secondary-button" id="generate_chart">Generate</button>
+          </div>
+        </div>
+
+        <div class="section-divider"></div>
+        <details class="stats-card" id="stats_panel" open style="display:none;">
+          <summary id="stats_summary">Statistics</summary>
+          <div id="stats_box"></div>
+        </details>
+        <div class="chart-wrapper" id="chart_panel" style="display:none;">
+          <canvas class="chart-canvas" id="chart_canvas" height="340"></canvas>
+        </div>
+        <div class="analysis-table-wrapper" id="analysis_table_panel" style="margin-top: 0.8rem; display:none;">
+          <table class="analysis-table">
+            <thead><tr id="analysis_table_head"></tr></thead>
+            <tbody id="analysis_table_body"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <div class="section-divider"></div>
+
+      <details class="chart-card" open>
+        <summary>Map</summary>
+        <div class="map-controls">
+          <div class="control-row">
+            <label for="map_port_filter">Filter: Port (Map)</label>
+            <select id="map_port_filter">
+              <option value="">All ports</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label for="map_start_time">From (Map)</label>
+            <input id="map_start_time" type="datetime-local">
+          </div>
+          <div class="control-row">
+            <label for="map_end_time">To (Map)</label>
+            <input id="map_end_time" type="datetime-local">
+          </div>
+          <div class="control-row">
+            <label>Coordinate filter</label>
+            <label class="analytics-hint"><input type="checkbox" id="ignore_zero_coords"> Ignore lat=0 or lon=0</label>
+          </div>
+          <div class="control-row">
+            <label>Track</label>
+            <label class="analytics-hint"><input type="checkbox" id="track_toggle"> Draw line between points</label>
+          </div>
+          <div class="control-row full-row">
+            <label class="analytics-hint">&nbsp;</label>
+            <button type="button" class="secondary-button" id="generate_map">Generate Map</button>
+          </div>
+        </div>
+        <div class="analytics-hint" id="map_message"></div>
+        <div class="map-panel" id="map_panel" style="display:none;"></div>
+        <div id="map_stats" style="margin-top:0.75rem;"></div>
+        <div class="analysis-table-wrapper" style="margin-top: 0.8rem;">
+          <table class="analysis-table">
+            <thead><tr id="map_table_head"></tr></thead>
+            <tbody id="map_table_body"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <script>
+        (() => {{
+          try {{
+            const payloadEl = document.getElementById("analysis_payload");
+            const metaEl = document.getElementById("analysis_field_meta");
+            const rows = payloadEl ? JSON.parse(payloadEl.textContent || "[]") : [];
+            const fieldMeta = metaEl ? JSON.parse(metaEl.textContent || "{{}}") : {{}};
+            const parseNumber = (value) => {{
+              if (value === null || value === undefined || value === "") return null;
+              if (typeof value === "number" && Number.isFinite(value)) return value;
+              if (typeof value === "string") {{
+                const parsed = Number(value);
+                return Number.isFinite(parsed) ? parsed : null;
+              }}
+              return null;
+            }};
+
+          const parseTimestamp = (row) => {{
+            const unix = parseNumber(row.time_unix);
+            if (unix !== null) return unix * 1000;
+            const raw = row.time_utc || "";
+            if (!raw) return null;
+            const parsed = Date.parse(raw.replace(" UTC", "Z"));
+            return Number.isFinite(parsed) ? parsed : null;
+          }};
+
+          const normalizeField = (field) => {{
+            return field ? field.replace(/^data\\./, "") : field;
+          }};
+
+          const getFieldMeta = (field) => {{
+            if (!field) return null;
+            return fieldMeta[field] || fieldMeta[normalizeField(field)] || null;
+          }};
+
+          const getFieldLabel = (field) => {{
+            const meta = getFieldMeta(field);
+            if (meta && meta.label) return meta.label;
+            return normalizeField(field) || "";
+          }};
+
+          const getUnitLabel = (field) => {{
+            const meta = getFieldMeta(field);
+            if (meta && meta.unit) {{
+              return meta.unit.symbol || meta.unit.label || "";
+            }}
+            return "";
+          }};
+
+          const getPrecision = (field) => {{
+            const meta = getFieldMeta(field);
+            if (!meta) return null;
+            if (meta.isInteger) return 0;
+            if (meta.precision !== undefined && meta.precision !== null) return meta.precision;
+            return null;
+          }};
+
+          const trimZeros = (text) => {{
+            if (text.includes(".")) {{
+              return text.replace(/\\.0+$/, "").replace(/(\\.\\d*?)0+$/, "$1").replace(/\\.$/, "");
+            }}
+            return text;
+          }};
+
+          const formatNumber = (value, precision = null) => {{
+            if (value === null || value === undefined || Number.isNaN(value)) return "";
+            const num = Number(value);
+            if (!Number.isFinite(num)) return "";
+            if (precision !== null) {{
+              const fixed = num.toFixed(precision);
+              return precision > 0 ? trimZeros(fixed) : fixed;
+            }}
+            const text = String(num);
+            if (/[eE]/.test(text)) return trimZeros(num.toFixed(6));
+            return text;
+          }};
+
+          const formatValue = (field, value) => {{
+            if (value === null || value === undefined || value === "") return "";
+            if (typeof value === "number" || typeof value === "string") {{
+              const precision = getPrecision(field);
+              return formatNumber(value, precision);
+            }}
+            if (typeof value === "boolean") return value ? "1" : "0";
+            return String(value);
+          }};
+
+          const formatFieldLabel = (field) => {{
+            if (!field) return "";
+            const base = getFieldLabel(field);
+            const unit = getUnitLabel(field);
+            return unit ? `${{base}} (${{unit}})` : base;
+          }};
+
+          const records = rows.map((row) => ({{
+            status: row.status || "",
+            devaddr: row.devaddr || "",
+            fport: row.fport,
+            timestamp: parseTimestamp(row),
+            flat: row.decoded_flat || {{}},
+            payload_hex: row.payload_hex || ""
+          }}));
+
+          const PORT_TO_TYPE = {{
+            1: "lr_gps",
+            2: "ublox_gps",
+            3: "settings",
+            4: "status",
+            5: "lr_sat_data",
+            6: "wifi_scan_aggregated",
+            7: "ble_scan_aggregated",
+            8: "rf_scan",
+            9: "ublox_sat_data",
+            10: "wifi_scan",
+            11: "ble_scan",
+            12: "fence",
+            13: "ublox_short_message",
+            14: "flash_status",
+            15: "ble_cmdq",
+            16: "ublox_resend_location",
+            17: "rf_open_sky_detection",
+            18: "timestamp",
+            19: "external_switch_detection",
+            20: "external_switch_detection_status",
+            27: "memfault",
+            28: "lr_messaging",
+            29: "flash_log",
+            30: "values",
+            31: "messages",
+            32: "commands"
+          }};
+
+          const guessMessageType = (flat) => {{
+            const keys = flat ? Object.keys(flat).map((key) => normalizeField(key)) : [];
+            const has = (...arr) => arr.some((key) => keys.includes(key));
+            if (has("latitude", "longitude", "cog", "sog", "pDOP", "SIV", "fixType")) return "gnss_like";
+            if (has("bat", "temp", "uptime", "locked", "reset", "acc_x", "acc_y", "acc_z")) return "status_like";
+            if (has("wifi_scan_json")) return "wifi_scan";
+            if (has("bt_scan_json")) return "ble_scan";
+            if (has("rf_scan", "rf_scan_json")) return "rf_scan";
+            if (has("opensky_json")) return "rf_open_sky_detection";
+            if (has("fence", "fence_json")) return "fence";
+            if (has("memfault_msg_hex")) return "memfault";
+            return "unknown";
+          }};
+
+          const resolveMessageType = (port, sampleFlat) => {{
+            if (PORT_TO_TYPE[port]) return PORT_TO_TYPE[port];
+            return guessMessageType(sampleFlat);
+          }};
+
+          const renderMessageSummary = () => {{
+            const counts = new Map();
+            const samples = new Map();
+            records.forEach((record) => {{
+              const port = record.fport !== undefined && record.fport !== null ? record.fport : "(unknown)";
+              counts.set(port, (counts.get(port) || 0) + 1);
+              if (!samples.has(port)) samples.set(port, record.flat || {{}});
+            }});
+            const rowsSummary = Array.from(counts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([port, count]) => {{
+                const portNumber = Number(port);
+                const type = Number.isFinite(portNumber)
+                  ? resolveMessageType(portNumber, samples.get(port))
+                  : "unknown";
+                return {{ port, type, count }};
+              }});
+            const body = document.getElementById("message_summary_body");
+            if (body) {{
+              body.innerHTML = rowsSummary.map((row) =>
+                `<tr><td>${{row.port}}</td><td>${{row.type}}</td><td>${{row.count}}</td></tr>`
+              ).join("");
+            }}
+            const hint = document.getElementById("message_summary_hint");
+            if (hint) {{
+              hint.textContent = rowsSummary.length
+                ? `Total messages: ${{records.length}} • Unique ports: ${{rowsSummary.length}}`
+                : "No decoded messages available.";
+            }}
+          }};
+
+          const numericFields = (() => {{
+            const found = new Set();
+            records.forEach((record) => {{
+              Object.entries(record.flat).forEach(([key, value]) => {{
+                if (parseNumber(value) !== null) found.add(key);
+              }});
+            }});
+            return Array.from(found).sort();
+          }})();
+
+          const pickBestLat = () => {{
+            const preferred = ["data.latitude", "latitude", "lat", "gps_lat"];
+            for (const field of preferred) {{
+              if (numericFields.includes(field)) return field;
+            }}
+            return numericFields.find((field) => /lat/i.test(field)) || "";
+          }};
+
+          const pickBestLon = () => {{
+            const preferred = ["data.longitude", "longitude", "lon", "lng", "gps_lon"];
+            for (const field of preferred) {{
+              if (numericFields.includes(field)) return field;
+            }}
+            return numericFields.find((field) => /(lon|lng)/i.test(field)) || "";
+          }};
+
+          const selectField = (id, includeEmpty) => {{
+            const select = document.getElementById(id);
+            if (!select) return;
+            const empty = includeEmpty ? '<option value="">-</option>' : "";
+            select.innerHTML = empty + numericFields.map((field) =>
+              `<option value="${{field}}">${{formatFieldLabel(field)}}</option>`
+            ).join("");
+          }};
+
+          selectField("field_select", false);
+          selectField("field_select_2", true);
+          selectField("field_select_y", true);
+          const defaultField = numericFields.find((field) => field.includes("data.bat") || field.includes("bat")) || numericFields[0] || "";
+          const fieldSelect = document.getElementById("field_select");
+          if (fieldSelect && defaultField) fieldSelect.value = defaultField;
+          updateMapPortOptions();
+          updateTimeBounds({{
+            portValue: document.getElementById("port_filter")?.value.trim() || "",
+            startId: "start_time",
+            endId: "end_time",
+            requireLocation: false
+          }});
+          updateTimeBounds({{
+            portValue: document.getElementById("map_port_filter")?.value || "",
+            startId: "map_start_time",
+            endId: "map_end_time",
+            requireLocation: true
+          }});
+
+          let currentTable = {{ columns: [], rows: [] }};
+          let currentMapRows = [];
+          let chartRef = null;
+          const setDebug = () => {{}};
+
+          renderMessageSummary();
+
+          const parseLocalInput = (id) => {{
+            const input = document.getElementById(id);
+            if (!input || !input.value) return null;
+            const parsed = Date.parse(input.value);
+            return Number.isFinite(parsed) ? parsed : null;
+          }};
+
+          function formatLocalDateTime(ms) {{
+            const date = new Date(ms);
+            const pad = (value) => String(value).padStart(2, "0");
+            return `${{date.getFullYear()}}-${{pad(date.getMonth() + 1)}}-${{pad(date.getDate())}}T${{pad(date.getHours())}}:${{pad(date.getMinutes())}}`;
+          }}
+
+          function updateTimeBounds(opts) {{
+            const {{ portValue, startId, endId, requireLocation }} = opts;
+            const latField = requireLocation ? pickBestLat() : "";
+            const lonField = requireLocation ? pickBestLon() : "";
+            const ignoreZero = requireLocation ? document.getElementById("ignore_zero_coords")?.checked || false : false;
+            let minTs = null;
+            let maxTs = null;
+            records.forEach((record) => {{
+              if (portValue && String(record.fport) !== String(portValue)) return;
+              if (requireLocation) {{
+                if (!latField || !lonField) return;
+                const lat = numericValue(record, latField);
+                const lon = numericValue(record, lonField);
+                if (lat === null || lon === null) return;
+                if (ignoreZero && (lat === 0 || lon === 0)) return;
+                if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+              }}
+              if (!record.timestamp) return;
+              if (minTs === null || record.timestamp < minTs) minTs = record.timestamp;
+              if (maxTs === null || record.timestamp > maxTs) maxTs = record.timestamp;
+            }});
+            if (minTs === null || maxTs === null) return;
+            const startInput = document.getElementById(startId);
+            const endInput = document.getElementById(endId);
+            if (startInput) startInput.value = formatLocalDateTime(minTs);
+            if (endInput) endInput.value = formatLocalDateTime(maxTs);
+          }}
+
+          const filterRecords = (list, filters) => {{
+            return list.filter((record) => {{
+              if (filters.port && String(record.fport) !== String(filters.port)) return false;
+              if (filters.start && (!record.timestamp || record.timestamp < filters.start)) return false;
+              if (filters.end && (!record.timestamp || record.timestamp > filters.end)) return false;
+              return true;
+            }});
+          }};
+
+          function numericValue(record, field) {{
+            if (!field) return null;
+            const value = record.flat[field];
+            return parseNumber(value);
+          }}
+
+          const aggValue = (values, agg) => {{
+            if (!values.length) return null;
+            const sorted = values.slice().sort((a, b) => a - b);
+            const sum = values.reduce((acc, val) => acc + val, 0);
+            switch (agg) {{
+              case "min":
+                return sorted[0];
+              case "max":
+                return sorted[sorted.length - 1];
+              case "sum":
+                return sum;
+              case "count":
+                return values.length;
+              case "median":
+                return sorted.length % 2
+                  ? sorted[(sorted.length - 1) / 2]
+                  : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+              case "stdev": {{
+                const mean = sum / values.length;
+                const variance = values.reduce((acc, val) => acc + (val - mean) ** 2, 0) / (values.length || 1);
+                return Math.sqrt(variance);
+              }}
+              case "mean":
+              default:
+                return sum / values.length;
+            }}
+          }};
+
+          const bucketTime = (ms, bucket) => {{
+            const date = new Date(ms);
+            if (bucket === "minute") {{
+              date.setSeconds(0, 0);
+            }} else if (bucket === "hour") {{
+              date.setMinutes(0, 0, 0);
+            }} else if (bucket === "day") {{
+              date.setHours(0, 0, 0, 0);
+            }}
+            return date.getTime();
+          }};
+
+          const setStatsBox = (values, field) => {{
+            const box = document.getElementById("stats_box");
+            const summary = document.getElementById("stats_summary");
+            if (!box) return;
+            if (!values.length) {{
+              if (summary) summary.textContent = "Statistics";
+              box.innerHTML = "<div class=\\"analytics-hint\\">No data for statistics.</div>";
+              return;
+            }}
+            if (summary) summary.textContent = `Statistics for ${{formatFieldLabel(field)}}`;
+            const sorted = values.slice().sort((a, b) => a - b);
+            const count = values.length;
+            const mean = values.reduce((acc, val) => acc + val, 0) / count;
+            const median = count % 2
+              ? sorted[(count - 1) / 2]
+              : (sorted[count / 2 - 1] + sorted[count / 2]) / 2;
+            const p5 = sorted[Math.floor(count * 0.05)];
+            const p95 = sorted[Math.floor(count * 0.95)];
+            const variance = values.reduce((acc, val) => acc + (val - mean) ** 2, 0) / (count || 1);
+            const stdev = Math.sqrt(variance);
+            box.innerHTML = `
+              <div class="analysis-table-wrapper" style="margin-top:0.4rem;">
+                <table class="analysis-table">
+                  <tbody>
+                    <tr><td>N</td><td>${{count}}</td></tr>
+                    <tr><td>Min</td><td>${{formatValue(field, sorted[0])}}</td></tr>
+                    <tr><td>P5</td><td>${{formatValue(field, p5)}}</td></tr>
+                    <tr><td>Median</td><td>${{formatValue(field, median)}}</td></tr>
+                    <tr><td>Average</td><td>${{formatValue(field, mean)}}</td></tr>
+                    <tr><td>P95</td><td>${{formatValue(field, p95)}}</td></tr>
+                    <tr><td>Max</td><td>${{formatValue(field, sorted[sorted.length - 1])}}</td></tr>
+                    <tr><td>Std.dev.</td><td>${{formatValue(field, stdev)}}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }};
+
+          const renderTable = (columns, rows) => {{
+            currentTable = {{ columns, rows }};
+            const head = document.getElementById("analysis_table_head");
+            const body = document.getElementById("analysis_table_body");
+            if (!head || !body) return;
+            head.innerHTML = columns.map((col) => `<th>${{col}}</th>`).join("");
+            body.innerHTML = rows.map((row) => {{
+              const tds = columns.map((col) => `<td>${{row[col] ?? ""}}</td>`).join("");
+              return `<tr>${{tds}}</tr>`;
+            }}).join("");
+          }};
+
+          const chartCanvas = () => document.getElementById("chart_canvas");
+          const chartError = (message) => {{
+            const banner = document.getElementById("analysis_error");
+            if (banner) {{
+              banner.textContent = message;
+              banner.style.display = "block";
+            }}
+          }};
+          const resetChart = () => {{
+            if (chartRef) {{
+              chartRef.destroy();
+              chartRef = null;
+            }}
+          }};
+
+          const showEmptyChart = () => {{
+            resetChart();
+            const canvas = chartCanvas();
+            if (!canvas) return;
+            const ctx = canvas.getContext("2d");
+            const width = canvas.clientWidth || 800;
+            const height = canvas.clientHeight || 320;
+            canvas.width = width;
+            canvas.height = height;
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = "#94a3b8";
+            ctx.font = "14px sans-serif";
+            ctx.fillText("No data for chart.", 24, height / 2);
+          }};
+
+          const chooseTimeUnit = (points) => {{
+            if (!points || !points.length) return "hour";
+            const sorted = points.slice().sort((a, b) => a.x - b.x);
+            const span = sorted[sorted.length - 1].x - sorted[0].x;
+            const day = 24 * 60 * 60 * 1000;
+            if (span < 2 * 60 * 60 * 1000) return "minute";
+            if (span < 2 * day) return "hour";
+            return "day";
+          }};
+
+          const timeScaleType = () => {{
+            return "linear";
+          }};
+
+          const renderLine = (points, config) => {{
+            if (!points.length) return showEmptyChart();
+            resetChart();
+            const ctx = chartCanvas()?.getContext("2d");
+            if (!ctx || !window.Chart) {{
+              chartError("Chart library not loaded. Ensure Chart.js is reachable.");
+              setDebug(`Chart.js available: ${{!!window.Chart}}`);
+              return;
+            }}
+            const xScaleType = timeScaleType();
+            try {{
+              chartRef = new Chart(ctx, {{
+                type: "line",
+                data: {{
+                  datasets: [
+                    {{
+                      label: config.label || config.yLabel || "Series",
+                      data: points,
+                      borderColor: "#2563eb",
+                      backgroundColor: "rgba(37,99,235,0.15)",
+                      pointRadius: 0,
+                      borderWidth: 2,
+                      parsing: false
+                    }}
+                  ]
+                }},
+                options: {{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  interaction: {{ mode: "nearest", intersect: false }},
+                  scales: {{
+                    x: {{
+                      type: xScaleType,
+                      title: {{ display: !!config.xLabel, text: config.xLabel }},
+                      ticks: {{
+                        callback: (value) => new Date(value).toLocaleString()
+                      }}
+                    }},
+                    y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }}
+                  }},
+                  plugins: {{
+                    legend: {{ position: "bottom" }},
+                    title: {{ display: !!config.title, text: config.title }},
+                    tooltip: {{
+                      callbacks: {{
+                        title: (items) => {{
+                          const x = items[0]?.parsed?.x;
+                          return Number.isFinite(x) ? new Date(x).toLocaleString() : "";
+                        }},
+                        label: (ctx) => {{
+                          const field = config.field || "";
+                          const value = ctx.parsed?.y;
+                          const label = ctx.dataset?.label || "";
+                          return label ? `${{label}}: ${{formatValue(field, value)}}` : formatValue(field, value);
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+              }});
+              setDebug(`Chart type=line, points=${{points.length}}, xScale=${{xScaleType}}`);
+            }} catch (err) {{
+              chartError(`Chart render failed: ${{err && err.message ? err.message : err}}`);
+              setDebug(`Chart error: ${{err && err.message ? err.message : err}}`);
+            }}
+          }};
+
+          const renderLineMulti = (series, config) => {{
+            const points = series.flatMap((line) => line.points || []);
+            if (!points.length) return showEmptyChart();
+            resetChart();
+            const ctx = chartCanvas()?.getContext("2d");
+            if (!ctx || !window.Chart) {{
+              chartError("Chart library not loaded. Ensure Chart.js is reachable.");
+              setDebug(`Chart.js available: ${{!!window.Chart}}`);
+              return;
+            }}
+            const xScaleType = timeScaleType();
+            const datasets = series.map((line, index) => ({{
+              label: line.label || `Series ${{index + 1}}`,
+              data: line.points || [],
+              borderColor: line.color || (index === 0 ? "#2563eb" : "#dc2626"),
+              backgroundColor: "transparent",
+              pointRadius: 0,
+              borderWidth: 2,
+              parsing: false,
+              field: line.field || ""
+            }}));
+            try {{
+              chartRef = new Chart(ctx, {{
+                type: "line",
+                data: {{ datasets }},
+                options: {{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  interaction: {{ mode: "nearest", intersect: false }},
+                  scales: {{
+                    x: {{
+                      type: xScaleType,
+                      title: {{ display: !!config.xLabel, text: config.xLabel }},
+                      ticks: {{
+                        callback: (value) => new Date(value).toLocaleString()
+                      }}
+                    }},
+                    y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }}
+                  }},
+                  plugins: {{
+                    legend: {{ position: "bottom" }},
+                    title: {{ display: !!config.title, text: config.title }},
+                    tooltip: {{
+                      callbacks: {{
+                        title: (items) => {{
+                          const x = items[0]?.parsed?.x;
+                          return Number.isFinite(x) ? new Date(x).toLocaleString() : "";
+                        }},
+                        label: (ctx) => {{
+                          const field = ctx.dataset?.field || config.field || "";
+                          const value = ctx.parsed?.y;
+                          const label = ctx.dataset?.label || "";
+                          return label ? `${{label}}: ${{formatValue(field, value)}}` : formatValue(field, value);
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+              }});
+              setDebug(`Chart type=multi-line, series=${{series.length}}, points=${{points.length}}, xScale=${{xScaleType}}`);
+            }} catch (err) {{
+              chartError(`Chart render failed: ${{err && err.message ? err.message : err}}`);
+              setDebug(`Chart error: ${{err && err.message ? err.message : err}}`);
+            }}
+          }};
+
+          const renderBar = (points, config) => {{
+            if (!points.length) return showEmptyChart();
+            resetChart();
+            const ctx = chartCanvas()?.getContext("2d");
+            if (!ctx || !window.Chart) {{
+              chartError("Chart library not loaded. Ensure Chart.js is reachable.");
+              setDebug(`Chart.js available: ${{!!window.Chart}}`);
+              return;
+            }}
+            const xScaleType = timeScaleType();
+            try {{
+              chartRef = new Chart(ctx, {{
+                type: "bar",
+                data: {{
+                  datasets: [
+                    {{
+                      label: config.label || config.yLabel || "Series",
+                      data: points,
+                      backgroundColor: "rgba(37,99,235,0.65)",
+                      parsing: false
+                    }}
+                  ]
+                }},
+                options: {{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  interaction: {{ mode: "nearest", intersect: false }},
+                  scales: {{
+                    x: {{
+                      type: xScaleType,
+                      title: {{ display: !!config.xLabel, text: config.xLabel }},
+                      ticks: {{
+                        callback: (value) => new Date(value).toLocaleString()
+                      }}
+                    }},
+                    y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }}
+                  }},
+                  plugins: {{
+                    legend: {{ position: "bottom" }},
+                    title: {{ display: !!config.title, text: config.title }},
+                    tooltip: {{
+                      callbacks: {{
+                        title: (items) => {{
+                          const x = items[0]?.parsed?.x;
+                          return Number.isFinite(x) ? new Date(x).toLocaleString() : "";
+                        }},
+                        label: (ctx) => {{
+                          const field = config.field || "";
+                          const value = ctx.parsed?.y;
+                          const label = ctx.dataset?.label || "";
+                          return label ? `${{label}}: ${{formatValue(field, value)}}` : formatValue(field, value);
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+              }});
+              setDebug(`Chart type=bar, points=${{points.length}}, xScale=${{xScaleType}}`);
+            }} catch (err) {{
+              chartError(`Chart render failed: ${{err && err.message ? err.message : err}}`);
+              setDebug(`Chart error: ${{err && err.message ? err.message : err}}`);
+            }}
+          }};
+
+          const renderScatter = (points, config) => {{
+            if (!points.length) return showEmptyChart();
+            resetChart();
+            const ctx = chartCanvas()?.getContext("2d");
+            if (!ctx || !window.Chart) {{
+              chartError("Chart library not loaded. Ensure Chart.js is reachable.");
+              setDebug(`Chart.js available: ${{!!window.Chart}}`);
+              return;
+            }}
+            chartRef = new Chart(ctx, {{
+              type: "scatter",
+              data: {{
+                datasets: [
+                  {{
+                    label: config.label || "Scatter",
+                    data: points,
+                    borderColor: "#2563eb",
+                    backgroundColor: "rgba(37,99,235,0.4)",
+                    parsing: false
+                  }}
+                ]
+              }},
+              options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {{ mode: "nearest", intersect: false }},
+                scales: {{
+                  x: {{ type: "linear", title: {{ display: !!config.xLabel, text: config.xLabel }} }},
+                  y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }}
+                }},
+                plugins: {{
+                  legend: {{ position: "bottom" }},
+                  title: {{ display: !!config.title, text: config.title }},
+                  tooltip: {{
+                    callbacks: {{
+                      label: (ctx) => {{
+                        const x = ctx.parsed?.x;
+                        const y = ctx.parsed?.y;
+                        const xLabel = formatValue(config.xField || "", x);
+                        const yLabel = formatValue(config.yField || "", y);
+                        return `x: ${{xLabel}}  y: ${{yLabel}}`;
+                      }}
+                    }}
+                  }}
+                }}
+              }}
+            }});
+            setDebug(`Chart type=scatter, points=${{points.length}}`);
+          }};
+
+          const renderHistogram = (values, field) => {{
+            const count = values.length;
+            if (!count) {{
+              renderTable([], []);
+              showEmptyChart();
+              return;
+            }}
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const bins = Math.min(40, Math.max(8, Math.ceil(Math.sqrt(count))));
+            const width = (max - min) / (bins || 1);
+            const counts = new Array(bins).fill(0);
+            values.forEach((value) => {{
+              const idx = width ? Math.min(bins - 1, Math.max(0, Math.floor((value - min) / width))) : 0;
+              counts[idx] += 1;
+            }});
+            const tableRows = counts.map((count, idx) => {{
+              const start = min + idx * width;
+              const end = start + width;
+              return {{
+                "Bin": `${{formatNumber(start, getPrecision(field))}}-${{formatNumber(end, getPrecision(field))}}`,
+                "Count": count
+              }};
+            }});
+            renderTable(["Bin", "Count"], tableRows);
+            resetChart();
+            const ctx = chartCanvas()?.getContext("2d");
+            if (!ctx || !window.Chart) return;
+            chartRef = new Chart(ctx, {{
+              type: "bar",
+              data: {{
+                labels: tableRows.map((row) => row["Bin"]),
+                datasets: [
+                  {{
+                    label: "Count",
+                    data: counts,
+                    backgroundColor: "rgba(37,99,235,0.65)"
+                  }}
+                ]
+              }},
+              options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {{
+                  legend: {{ position: "bottom" }},
+                  title: {{ display: true, text: `Distribution of ${{formatFieldLabel(field)}}` }}
+                }}
+              }}
+            }});
+            setDebug(`Chart type=histogram, bins=${{counts.length}}`);
+          }};
+
+          const updateOutlierUI = () => {{
+            const chartType = document.getElementById("chart_type")?.value || "line";
+            const fieldY = document.getElementById("field_select_y")?.value || "";
+            const wrap = document.getElementById("outlier_y_wrap");
+            if (wrap) {{
+              wrap.style.display = chartType === "scatter" && fieldY ? "block" : "none";
+            }}
+            const secondField = document.getElementById("field_select_2");
+            if (secondField) {{
+              const row = secondField.closest(".control-row");
+              if (row) row.style.display = chartType === "line" ? "flex" : "none";
+            }}
+          }};
+
+          const renderDefaultMap = () => {{
+            const mapPanel = document.getElementById("map_panel");
+            if (!mapPanel) return;
+            mapPanel.style.display = "none";
+            mapPanel.innerHTML = "";
+          }};
+
+          const setAnalyticsPanelsVisible = (visible) => {{
+            const statsPanel = document.getElementById("stats_panel");
+            const chartPanel = document.getElementById("chart_panel");
+            const tablePanel = document.getElementById("analysis_table_panel");
+            const display = visible ? "" : "none";
+            if (statsPanel) statsPanel.style.display = display;
+            if (chartPanel) chartPanel.style.display = display;
+            if (tablePanel) tablePanel.style.display = display;
+          }};
+
+          let leafletPromise = null;
+          const loadLeaflet = () => {{
+            if (window.L) return Promise.resolve();
+            if (leafletPromise) return leafletPromise;
+            const loadCss = (href, integrity) => {{
+              const link = document.createElement("link");
+              link.rel = "stylesheet";
+              link.href = href;
+              if (integrity) link.integrity = integrity;
+              link.crossOrigin = "";
+              link.setAttribute("data-leaflet", "true");
+              document.head.appendChild(link);
+            }};
+            const loadScript = (src, integrity) => new Promise((resolve, reject) => {{
+              const script = document.createElement("script");
+              script.src = src;
+              if (integrity) script.integrity = integrity;
+              script.crossOrigin = "";
+              script.onload = () => resolve();
+              script.onerror = () => reject(new Error("Failed to load map library."));
+              document.body.appendChild(script);
+            }});
+            leafletPromise = (async () => {{
+              loadCss(
+                "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+                "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+              );
+              try {{
+                await loadScript(
+                  "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+                  "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+                );
+                return;
+              }} catch (err) {{
+                loadCss(
+                  "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css",
+                  "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+                );
+                await loadScript(
+                  "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js",
+                  "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+                );
+              }}
+            }})();
+            return leafletPromise;
+          }};
+
+          function updateMapPortOptions() {{
+            const select = document.getElementById("map_port_filter");
+            if (!select) return;
+            const latField = pickBestLat();
+            const lonField = pickBestLon();
+            const ignoreZero = document.getElementById("ignore_zero_coords")?.checked || false;
+            const options = new Map();
+            records.forEach((record) => {{
+              const lat = numericValue(record, latField);
+              const lon = numericValue(record, lonField);
+              if (lat === null || lon === null) return;
+              if (ignoreZero && (lat === 0 || lon === 0)) return;
+              if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+              const port = record.fport;
+              if (port === undefined || port === null) return;
+              const portNumber = Number(port);
+              const key = Number.isFinite(portNumber) ? portNumber : port;
+              if (options.has(key)) return;
+              options.set(key, resolveMessageType(portNumber, record.flat || {{}}));
+            }});
+            const previous = select.value;
+            const entries = Array.from(options.entries()).sort((a, b) => a[0] - b[0]);
+            select.innerHTML = `<option value="">All ports</option>` + entries.map(([port, type]) =>
+              `<option value="${{port}}">Port ${{port}} (${{type}})</option>`
+            ).join("");
+            if (previous && select.querySelector(`option[value="${{previous}}"]`)) {{
+              select.value = previous;
+            }}
+          }}
+
+          const resetOutlierRanges = () => {{
+            const minX = document.getElementById("min_x");
+            const maxX = document.getElementById("max_x");
+            const minY = document.getElementById("min_y");
+            const maxY = document.getElementById("max_y");
+            if (minX) minX.value = "";
+            if (maxX) maxX.value = "";
+            if (minY) minY.value = "";
+            if (maxY) maxY.value = "";
+            const hintX = document.getElementById("x_range_hint");
+            const hintY = document.getElementById("y_range_hint");
+            if (hintX) hintX.textContent = "";
+            if (hintY) hintY.textContent = "";
+          }};
+
+          const generateAnalysis = () => {{
+            updateOutlierUI();
+            setAnalyticsPanelsVisible(true);
+            const fieldX = document.getElementById("field_select")?.value || "";
+            const field2 = document.getElementById("field_select_2")?.value || "";
+            const fieldY = document.getElementById("field_select_y")?.value || "";
+            const bucket = document.getElementById("bucket_select")?.value || "none";
+            const agg = document.getElementById("agg_select")?.value || "mean";
+            const chartType = document.getElementById("chart_type")?.value || "line";
+            const filters = {{
+              port: document.getElementById("port_filter")?.value.trim() || "",
+              start: parseLocalInput("start_time"),
+              end: parseLocalInput("end_time")
+            }};
+            let filtered = filterRecords(records, filters);
+            const valuesX = filtered.map((record) => numericValue(record, fieldX)).filter((v) => v !== null);
+            const valuesY = filtered.map((record) => numericValue(record, fieldY)).filter((v) => v !== null);
+
+            const minXInput = document.getElementById("min_x");
+            const maxXInput = document.getElementById("max_x");
+            const minYInput = document.getElementById("min_y");
+            const maxYInput = document.getElementById("max_y");
+
+            const applyRange = (values, minInput, maxInput, hintId, field) => {{
+              if (!minInput || !maxInput) return {{ min: null, max: null }};
+              const minVal = parseNumber(minInput.value);
+              const maxVal = parseNumber(maxInput.value);
+              if (minVal === null || maxVal === null) {{
+                if (values.length) {{
+                  const min = Math.min(...values);
+                  const max = Math.max(...values);
+                  minInput.value = String(min);
+                  maxInput.value = String(max);
+                  const hint = document.getElementById(hintId);
+                  if (hint) {{
+                    hint.textContent = `auto range from data: [${{formatNumber(min, getPrecision(field))}}, ${{formatNumber(max, getPrecision(field))}}]`;
+                  }}
+                  return {{ min, max }};
+                }}
+                const hint = document.getElementById(hintId);
+                if (hint) hint.textContent = "no numeric values found";
+                return {{ min: null, max: null }};
+              }}
+              return {{ min: minVal, max: maxVal }};
+            }};
+
+            const xRange = applyRange(valuesX, minXInput, maxXInput, "x_range_hint", fieldX);
+            const yRange = chartType === "scatter" && fieldY
+              ? applyRange(valuesY, minYInput, maxYInput, "y_range_hint", fieldY)
+              : {{ min: null, max: null }};
+
+            filtered = filtered.filter((record) => {{
+              const vx = numericValue(record, fieldX);
+              if (vx === null) return false;
+              if (xRange.min !== null && vx < xRange.min) return false;
+              if (xRange.max !== null && vx > xRange.max) return false;
+              if (chartType === "scatter" && fieldY) {{
+                const vy = numericValue(record, fieldY);
+                if (vy === null) return false;
+                if (yRange.min !== null && vy < yRange.min) return false;
+                if (yRange.max !== null && vy > yRange.max) return false;
+              }}
+              return true;
+            }});
+
+            setStatsBox(filtered.map((record) => numericValue(record, fieldX)).filter((v) => v !== null), fieldX);
+
+            if (chartType === "scatter" && fieldY) {{
+              const points = filtered.map((record) => {{
+                const x = numericValue(record, fieldX);
+                const y = numericValue(record, fieldY);
+                return x !== null && y !== null ? {{ x, y, timestamp: record.timestamp }} : null;
+              }}).filter(Boolean);
+              const tableRows = points.map((point) => ({{
+                "Timestamp": point.timestamp ? new Date(point.timestamp).toLocaleString() : "",
+                [formatFieldLabel(fieldX)]: formatValue(fieldX, point.x),
+                [formatFieldLabel(fieldY)]: formatValue(fieldY, point.y)
+              }}));
+              renderTable(["Timestamp", formatFieldLabel(fieldX), formatFieldLabel(fieldY)], tableRows);
+              renderScatter(points, {{
+                xLabel: formatFieldLabel(fieldX),
+                yLabel: formatFieldLabel(fieldY),
+                title: `${{formatFieldLabel(fieldY)}} vs ${{formatFieldLabel(fieldX)}}`,
+                xField: fieldX,
+                yField: fieldY
+              }});
+              return;
+            }}
+
+            if (chartType === "hist") {{
+              renderHistogram(filtered.map((record) => numericValue(record, fieldX)).filter((v) => v !== null), fieldX);
+              return;
+            }}
+
+            if (bucket === "none") {{
+              const points = filtered
+                .map((record) => {{
+                  if (!record.timestamp) return null;
+                  const value = numericValue(record, fieldX);
+                  return value !== null ? {{ x: record.timestamp, y: value }} : null;
+                }})
+                .filter(Boolean)
+                .sort((a, b) => a.x - b.x);
+              let points2 = [];
+              if (field2) {{
+                points2 = filtered
+                  .map((record) => {{
+                    if (!record.timestamp) return null;
+                    const value = numericValue(record, field2);
+                    return value !== null ? {{ x: record.timestamp, y: value }} : null;
+                  }})
+                  .filter(Boolean)
+                  .sort((a, b) => a.x - b.x);
+              }}
+              const points2Map = new Map(points2.map((point) => [point.x, point.y]));
+              const rowsOut = points.map((point) => {{
+                const row = {{
+                  "Timestamp": new Date(point.x).toLocaleString(),
+                  [formatFieldLabel(fieldX)]: formatValue(fieldX, point.y)
+                }};
+                if (field2 && points2Map.has(point.x)) {{
+                  row[formatFieldLabel(field2)] = formatValue(field2, points2Map.get(point.x));
+                }}
+                return row;
+              }});
+              const columns = ["Timestamp", formatFieldLabel(fieldX)];
+              if (field2) columns.push(formatFieldLabel(field2));
+              renderTable(columns, rowsOut);
+              if (chartType === "bar") {{
+                renderBar(points, {{
+                  xLabel: "Time",
+                  yLabel: formatFieldLabel(fieldX),
+                  title: `${{formatFieldLabel(fieldX)}} over time`,
+                  field: fieldX
+                }});
+              }} else if (field2 && points2.length) {{
+                renderLineMulti(
+                  [
+                    {{ label: formatFieldLabel(fieldX), points, field: fieldX }},
+                    {{ label: formatFieldLabel(field2), points: points2, field: field2 }}
+                  ],
+                  {{
+                    xLabel: "Time",
+                    yLabel: formatFieldLabel(fieldX),
+                    title: `${{formatFieldLabel(fieldX)}} & ${{formatFieldLabel(field2)}} over time`,
+                    field: fieldX
+                  }}
+                );
+              }} else {{
+                renderLine(points, {{
+                  xLabel: "Time",
+                  yLabel: formatFieldLabel(fieldX),
+                  title: `${{formatFieldLabel(fieldX)}} over time`,
+                  field: fieldX
+                }});
+              }}
+              return;
+            }}
+
+            const buckets = new Map();
+            const buckets2 = new Map();
+            filtered.forEach((record) => {{
+              if (!record.timestamp) return;
+              const bucketKey = bucketTime(record.timestamp, bucket);
+              const value = numericValue(record, fieldX);
+              if (value !== null) {{
+                if (!buckets.has(bucketKey)) buckets.set(bucketKey, []);
+                buckets.get(bucketKey).push(value);
+              }}
+              if (field2) {{
+                const value2 = numericValue(record, field2);
+                if (value2 !== null) {{
+                  if (!buckets2.has(bucketKey)) buckets2.set(bucketKey, []);
+                  buckets2.get(bucketKey).push(value2);
+                }}
+              }}
+            }});
+
+            const points = Array.from(buckets.entries())
+              .map(([key, values]) => ({{ x: key, y: aggValue(values, agg) }}))
+              .filter((point) => point.y !== null)
+              .sort((a, b) => a.x - b.x);
+            const points2 = field2
+              ? Array.from(buckets2.entries())
+                  .map(([key, values]) => ({{ x: key, y: aggValue(values, agg) }}))
+                  .filter((point) => point.y !== null)
+                  .sort((a, b) => a.x - b.x)
+              : [];
+
+            const points2Map = new Map(points2.map((point) => [point.x, point.y]));
+            const rowsOut = points.map((point) => {{
+              const row = {{
+                "Bucket start": new Date(point.x).toLocaleString(),
+                [formatFieldLabel(fieldX)]: formatValue(fieldX, point.y)
+              }};
+              if (field2 && points2Map.has(point.x)) {{
+                row[formatFieldLabel(field2)] = formatValue(field2, points2Map.get(point.x));
+              }}
+              return row;
+            }});
+            const columns = ["Bucket start", formatFieldLabel(fieldX)];
+            if (field2) columns.push(formatFieldLabel(field2));
+            renderTable(columns, rowsOut);
+            if (chartType === "bar") {{
+              renderBar(points, {{
+                xLabel: `Time (${{bucket}})`,
+                yLabel: formatFieldLabel(fieldX),
+                title: `${{formatFieldLabel(fieldX)}} per ${{bucket}}`,
+                field: fieldX
+              }});
+            }} else if (field2 && points2.length) {{
+              renderLineMulti(
+                [
+                  {{ label: formatFieldLabel(fieldX), points, field: fieldX }},
+                  {{ label: formatFieldLabel(field2), points: points2, field: field2 }}
+                ],
+                {{
+                  xLabel: `Time (${{bucket}})`,
+                  yLabel: formatFieldLabel(fieldX),
+                  title: `${{formatFieldLabel(fieldX)}} & ${{formatFieldLabel(field2)}} per ${{bucket}}`,
+                  field: fieldX
+                }}
+              );
+            }} else {{
+              renderLine(points, {{
+                xLabel: `Time (${{bucket}})`,
+                yLabel: formatFieldLabel(fieldX),
+                title: `${{formatFieldLabel(fieldX)}} per ${{bucket}}`,
+                field: fieldX
+              }});
+            }}
+          }};
+
+          let mapRef = null;
+          let mapLayer = null;
+          let mapTrack = null;
+          let mapLegend = null;
+          const generateMap = async () => {{
+            const mapPanel = document.getElementById("map_panel");
+            const mapMessage = document.getElementById("map_message");
+            if (!mapPanel) return;
+            if (mapMessage) mapMessage.textContent = "";
+            mapPanel.style.display = "";
+            updateMapPortOptions();
+            const filters = {{
+              port: document.getElementById("map_port_filter")?.value.trim() || "",
+              start: parseLocalInput("map_start_time"),
+              end: parseLocalInput("map_end_time")
+            }};
+            const latField = pickBestLat();
+            const lonField = pickBestLon();
+            const ignoreZero = document.getElementById("ignore_zero_coords")?.checked || false;
+            const track = document.getElementById("track_toggle")?.checked || false;
+
+            if (!latField || !lonField) {{
+              if (mapMessage) {{
+                mapMessage.textContent = "This decoded file does not include location fields to display a map.";
+              }}
+              mapPanel.style.display = "none";
+              const controls = document.querySelector(".map-controls");
+              if (controls) controls.style.display = "none";
+              renderTableHead("map_table_head", []);
+              renderTableBody("map_table_body", [], []);
+              if (document.getElementById("map_stats")) {{
+                document.getElementById("map_stats").innerHTML = "";
+              }}
+              if (mapLayer) mapLayer.clearLayers();
+              if (mapTrack) {{
+                mapTrack.remove();
+                mapTrack = null;
+              }}
+              if (mapLegend) {{
+                mapLegend.remove();
+                mapLegend = null;
+              }}
+              return;
+            }}
+
+            const controls = document.querySelector(".map-controls");
+            if (controls) controls.style.display = "";
+
+            let filtered = filterRecords(records, filters);
+            const points = filtered.map((record) => {{
+              const lat = numericValue(record, latField);
+              const lon = numericValue(record, lonField);
+              if (lat === null || lon === null) return null;
+              if (ignoreZero && (lat === 0 || lon === 0)) return null;
+              if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+              return {{ lat, lon, timestamp: record.timestamp }};
+            }}).filter(Boolean);
+
+            if (!points.length) {{
+              if (mapMessage) {{
+                mapMessage.textContent = "This decoded file does not contain usable location data to plot on the map.";
+              }}
+              mapPanel.style.display = "none";
+              currentMapRows = [];
+              renderTableHead("map_table_head", []);
+              renderTableBody("map_table_body", [], []);
+              if (document.getElementById("map_stats")) {{
+                document.getElementById("map_stats").innerHTML = "";
+              }}
+              if (mapLayer) mapLayer.clearLayers();
+              if (mapTrack) {{
+                mapTrack.remove();
+                mapTrack = null;
+              }}
+              if (mapLegend) {{
+                mapLegend.remove();
+                mapLegend = null;
+              }}
+              return;
+            }}
+
+            const minLat = Math.min(...points.map((p) => p.lat));
+            const maxLat = Math.max(...points.map((p) => p.lat));
+            const minLon = Math.min(...points.map((p) => p.lon));
+            const maxLon = Math.max(...points.map((p) => p.lon));
+            const latSpan = Math.max(0.0001, maxLat - minLat);
+            const lonSpan = Math.max(0.0001, maxLon - minLon);
+            const padLat = Math.max(0.01, latSpan * 0.2);
+            const padLon = Math.max(0.01, lonSpan * 0.2);
+            const minLatPad = Math.max(-90, minLat - padLat);
+            const maxLatPad = Math.min(90, maxLat + padLat);
+            const minLonPad = Math.max(-180, minLon - padLon);
+            const maxLonPad = Math.min(180, maxLon + padLon);
+            const latSpanPad = Math.max(0.0001, maxLatPad - minLatPad);
+            const lonSpanPad = Math.max(0.0001, maxLonPad - minLonPad);
+
+            if (mapMessage) {{
+              mapMessage.textContent = "Loading map...";
+            }}
+            try {{
+              await loadLeaflet();
+            }} catch (err) {{
+              if (mapMessage) {{
+                mapMessage.textContent = "Map tiles could not be loaded. Check your network connection.";
+              }}
+              return;
+            }}
+            if (!window.L) {{
+              if (mapMessage) {{
+                mapMessage.textContent = "Map library is unavailable.";
+              }}
+              return;
+            }}
+            if (mapMessage) {{
+              mapMessage.textContent = "";
+            }}
+
+            if (!mapRef || !mapRef._container) {{
+              if (mapRef) {{
+                mapRef.remove();
+              }}
+              mapPanel.innerHTML = "";
+              mapRef = L.map("map_panel", {{
+                zoomSnap: 0.5,
+                zoomControl: true
+              }});
+              const tiles = L.tileLayer("https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png", {{
+                maxZoom: 19,
+                attribution: "&copy; OpenStreetMap contributors"
+              }});
+              tiles.on("tileerror", () => {{
+                if (mapMessage) {{
+                  mapMessage.textContent = "Map tiles could not be loaded. Check network access.";
+                }}
+              }});
+              tiles.addTo(mapRef);
+              mapLayer = L.layerGroup().addTo(mapRef);
+            }}
+
+            mapLayer.clearLayers();
+            if (mapTrack) {{
+              mapTrack.remove();
+              mapTrack = null;
+            }}
+            if (mapLegend) {{
+              mapLegend.remove();
+              mapLegend = null;
+            }}
+
+            const latLngs = points.map((point) => [point.lat, point.lon]);
+            const bounds = L.latLngBounds(latLngs);
+            mapRef.fitBounds(bounds.pad(0.2));
+            mapRef.invalidateSize(true);
+            mapRef.whenReady(() => mapRef.invalidateSize(true));
+            setTimeout(() => mapRef.invalidateSize(true), 150);
+
+            points.forEach((point) => {{
+              L.circleMarker([point.lat, point.lon], {{
+                radius: 4,
+                color: "#2563eb",
+                fillColor: "#60a5fa",
+                fillOpacity: 0.55,
+                weight: 1
+              }}).addTo(mapLayer);
+            }});
+            if (track && points.length > 1) {{
+              mapTrack = L.polyline(latLngs, {{ color: "#2563eb", weight: 2, opacity: 0.5 }}).addTo(mapRef);
+            }}
+
+            mapLegend = document.createElement("div");
+            mapLegend.className = "map-legend";
+            mapLegend.textContent = `${{points.length}} points`;
+            mapPanel.appendChild(mapLegend);
+
+            const statsBox = document.getElementById("map_stats");
+            if (statsBox) {{
+              statsBox.innerHTML = `
+                <h3>Map summary</h3>
+                <table class="stats-table">
+                  <tr><td>Points</td><td>${{points.length}}</td></tr>
+                  <tr><td>Latitude range</td><td>${{formatValue(latField, minLat)}} - ${{formatValue(latField, maxLat)}}</td></tr>
+                  <tr><td>Longitude range</td><td>${{formatValue(lonField, minLon)}} - ${{formatValue(lonField, maxLon)}}</td></tr>
+                </table>
+              `;
+            }}
+
+            currentMapRows = points.map((point) => ({{
+              "Timestamp": point.timestamp ? new Date(point.timestamp).toLocaleString() : "",
+              "Latitude": formatValue(latField, point.lat),
+              "Longitude": formatValue(lonField, point.lon)
+            }}));
+            renderTableHead("map_table_head", ["Timestamp", "Latitude", "Longitude"]);
+            renderTableBody("map_table_body", ["Timestamp", "Latitude", "Longitude"], currentMapRows);
+          }};
+
+          const renderTableHead = (id, columns) => {{
+            const head = document.getElementById(id);
+            if (!head) return;
+            head.innerHTML = columns.map((col) => `<th>${{col}}</th>`).join("");
+          }};
+
+          const renderTableBody = (id, columns, rows) => {{
+            const body = document.getElementById(id);
+            if (!body) return;
+            body.innerHTML = rows.map((row) => {{
+              const tds = columns.map((col) => `<td>${{row[col] ?? ""}}</td>`).join("");
+              return `<tr>${{tds}}</tr>`;
+            }}).join("");
+          }};
+
+            document.getElementById("generate_chart")?.addEventListener("click", generateAnalysis);
+            document.getElementById("chart_type")?.addEventListener("change", () => {{
+              updateOutlierUI();
+              resetOutlierRanges();
+            }});
+            document.getElementById("field_select")?.addEventListener("change", resetOutlierRanges);
+            document.getElementById("field_select_2")?.addEventListener("change", resetOutlierRanges);
+            document.getElementById("field_select_y")?.addEventListener("change", () => {{
+              updateOutlierUI();
+              resetOutlierRanges();
+            }});
+            document.getElementById("port_filter")?.addEventListener("change", () => {{
+              updateTimeBounds({{
+                portValue: document.getElementById("port_filter")?.value.trim() || "",
+                startId: "start_time",
+                endId: "end_time",
+                requireLocation: false
+              }});
+            }});
+            document.getElementById("map_port_filter")?.addEventListener("change", () => {{
+              updateTimeBounds({{
+                portValue: document.getElementById("map_port_filter")?.value || "",
+                startId: "map_start_time",
+                endId: "map_end_time",
+                requireLocation: true
+              }});
+            }});
+            document.getElementById("ignore_zero_coords")?.addEventListener("change", () => {{
+              updateMapPortOptions();
+              updateTimeBounds({{
+                portValue: document.getElementById("map_port_filter")?.value || "",
+                startId: "map_start_time",
+                endId: "map_end_time",
+                requireLocation: true
+              }});
+            }});
+            document.getElementById("generate_map")?.addEventListener("click", generateMap);
+
+            updateOutlierUI();
+            renderDefaultMap();
+            setAnalyticsPanelsVisible(false);
+            if (!pickBestLat() || !pickBestLon()) {{
+              const mapMessage = document.getElementById("map_message");
+              if (mapMessage) {{
+                mapMessage.textContent = "This decoded file does not include location fields to display a map.";
+              }}
+              const controls = document.querySelector(".map-controls");
+              if (controls) controls.style.display = "none";
+            }}
+          }} catch (err) {{
+            console.error("Analyze page error", err);
+            const banner = document.getElementById("analysis_error");
+            if (banner) {{
+              banner.textContent = `Analyze error: ${{err && err.message ? err.message : err}}`;
+              banner.style.display = "block";
+            }}
+          }}
+        }})();
+      </script>
+    """
+
+    active_page = "files" if saved_id else "decoders"
+    return render_simple_page(
+        title="Analyze",
+        subtitle=f"Explore decoded payloads from {source_filename}.",
+        body_html=body_html,
+        active_page=active_page,
+        page_title="Analyze results",
+    )
 
 
 @app.route("/generate-log", methods=["GET", "POST"])
