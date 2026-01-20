@@ -7626,7 +7626,7 @@ def analyze_results():
       <script type="application/json" id="analysis_payload">{analyze_payload}</script>
       <script type="application/json" id="analysis_field_meta">{field_meta_payload}</script>
       <details class="chart-card" open>
-        <summary>Decoded message summary</summary>
+        <summary><span class="material-icons" aria-hidden="true">description</span>Decoded message summary</summary>
         <div class="analytics-hint" id="message_summary_hint"></div>
         <div class="analysis-table-wrapper" style="margin-top:0.6rem;">
           <table class="analysis-table">
@@ -7636,8 +7636,10 @@ def analyze_results():
         </div>
       </details>
 
+      <div class="section-divider"></div>
+
       <details class="chart-card" open>
-        <summary>Simple analytics (tables, charts & statistics)</summary>
+        <summary><span class="material-icons" aria-hidden="true">insights</span>Simple analytics (tables, charts & statistics)</summary>
         <div class="analytics-controls">
           <div class="control-row">
             <label for="field_select">Field (X)</label>
@@ -7756,7 +7758,7 @@ def analyze_results():
       <div class="section-divider"></div>
 
       <details class="chart-card" open>
-        <summary>Map</summary>
+        <summary><span class="material-icons" aria-hidden="true">map</span>Map</summary>
         <div class="map-controls">
           <div class="control-row">
             <label for="map_port_filter">Filter: Port (Map)</label>
