@@ -32,7 +32,13 @@ Open the app in your browser at `http://127.0.0.1:18080`.
 Prerequisites:
 - Install Docker Desktop for Windows or macOS.
 - Ensure Docker Desktop is running.
-- On Windows + WSL2, enable Docker Desktop WSL Integration for your distro.
+- On Windows: enable WSL2, then enable Docker Desktop WSL Integration for your distro.
+
+Get the repo:
+```bash
+git clone <repo-url>
+cd lp0_replay_app
+```
 
 Run from the repo root:
 ```bash
