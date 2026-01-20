@@ -22,6 +22,30 @@ python app.py
 
 Open the app in your browser at `http://127.0.0.1:18080`.
 
+## Deployment options
+
+- Hosted (systemd + Nginx): `docs/DEPLOY_HOSTED.md`
+- Local (Docker Desktop): `docs/DEPLOY_LOCAL_DOCKER.md`
+
+### Local with Docker Desktop (quick start)
+
+Prerequisites:
+- Install Docker Desktop for Windows or macOS.
+- Ensure Docker Desktop is running.
+- On Windows + WSL2, enable Docker Desktop WSL Integration for your distro.
+
+Run from the repo root:
+```bash
+docker compose up -d --build
+```
+
+Open the app at `http://localhost:18080`.
+
+To stop:
+```bash
+docker compose down
+```
+
 Optional environment settings:
 - `HOST`, `PORT`, `DEBUG` to control the bind address/port and debug mode.
 - `DATA_DIR` to store app data outside the repo.

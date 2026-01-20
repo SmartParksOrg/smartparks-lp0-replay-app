@@ -1,0 +1,9 @@
+services:
+  lp0-replay:
+    build: .
+    ports:
+      - "18080:18080"
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data

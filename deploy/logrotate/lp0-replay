@@ -1,0 +1,7 @@
+/var/lib/lp0-replay/audit.log {
+    size 50M
+    rotate 5
+    missingok
+    notifempty
+    copytruncate
+}

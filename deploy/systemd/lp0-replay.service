@@ -1,0 +1,27 @@
+[Unit]
+Description=LP0 Replay Web App
+After=network.target
+
+[Service]
+Type=simple
+User=lp0-replay
+Group=lp0-replay
+WorkingDirectory=/opt/lp0-replay
+EnvironmentFile=/etc/lp0-replay.env
+ExecStart=/opt/lp0-replay/venv/bin/gunicorn --bind 127.0.0.1:18080 --workers 1 --threads 4 wsgi:application
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lp0-replay
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
