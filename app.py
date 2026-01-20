@@ -1999,6 +1999,24 @@ STYLE_BLOCK = """
       line-height: 1;
     }
 
+    .map-button-row {
+      display: flex;
+      gap: 0.6rem;
+      padding: 0.25rem 0.35rem;
+      border-radius: 12px;
+      border: 1px solid rgba(15, 23, 42, 0.2);
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+      pointer-events: auto;
+      z-index: 2;
+    }
+
+    .map-panel .leaflet-bottom.leaflet-left {
+      left: 50%;
+      right: auto;
+      transform: translateX(-50%);
+    }
+
     .leaflet-zoom-animated {
       transform-origin: 0 0;
     }
@@ -2106,7 +2124,7 @@ STYLE_BLOCK = """
 
     .chart-canvas {
       width: 100%;
-      height: 100%;
+      height: calc(100% - 2.75rem);
       border: 1px solid var(--border);
       border-radius: 12px;
       background: #f8fafc;
@@ -2121,7 +2139,7 @@ STYLE_BLOCK = """
       background: #fff;
       border: 1px solid var(--border);
       border-radius: 16px;
-      padding: 1rem;
+      padding: 1rem 1rem 3.75rem;
       box-sizing: border-box;
     }
 
@@ -2139,10 +2157,18 @@ STYLE_BLOCK = """
       box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
     }
 
-    .chart-toggle-button {
+    .chart-button-row {
       position: absolute;
       bottom: 0.75rem;
-      right: 0.75rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 0.6rem;
+      z-index: 2;
+    }
+
+    .chart-toggle-button {
+      position: static;
       width: 36px;
       height: 36px;
       border-radius: 10px;
@@ -2155,19 +2181,6 @@ STYLE_BLOCK = """
       align-items: center;
       justify-content: center;
       box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
-      z-index: 2;
-    }
-
-    .chart-toggle-button.chart-zoom-reset {
-      right: 3.8rem;
-    }
-
-    .chart-toggle-button.chart-toggle-line {
-      right: 7.05rem;
-    }
-
-    .chart-toggle-button.chart-toggle-points {
-      right: 10.3rem;
     }
 
     .chart-toggle-button.is-active {
@@ -7716,18 +7729,20 @@ def analyze_results():
           <div id="stats_box"></div>
         </details>
         <div class="chart-wrapper" id="chart_panel" style="display:none;">
-          <button type="button" class="chart-toggle-button" id="chart_expand" title="Expand chart" aria-label="Expand chart">
-            <span class="material-icons" aria-hidden="true">open_in_full</span>
-          </button>
-          <button type="button" class="chart-toggle-button chart-zoom-reset" id="chart_reset_zoom" title="Reset zoom" aria-label="Reset zoom">
-            <span class="material-icons" aria-hidden="true">restart_alt</span>
-          </button>
-          <button type="button" class="chart-toggle-button chart-toggle-line" id="chart_toggle_line" title="Toggle line" aria-label="Toggle line">
-            <span class="material-icons" aria-hidden="true">show_chart</span>
-          </button>
-          <button type="button" class="chart-toggle-button chart-toggle-points" id="chart_toggle_points" title="Toggle points" aria-label="Toggle points">
-            <span class="material-icons" aria-hidden="true">scatter_plot</span>
-          </button>
+          <div class="chart-button-row">
+            <button type="button" class="chart-toggle-button" id="chart_expand" title="Expand chart" aria-label="Expand chart">
+              <span class="material-icons" aria-hidden="true">open_in_full</span>
+            </button>
+            <button type="button" class="chart-toggle-button chart-zoom-reset" id="chart_reset_zoom" title="Reset zoom" aria-label="Reset zoom">
+              <span class="material-icons" aria-hidden="true">restart_alt</span>
+            </button>
+            <button type="button" class="chart-toggle-button chart-toggle-line" id="chart_toggle_line" title="Toggle line" aria-label="Toggle line">
+              <span class="material-icons" aria-hidden="true">show_chart</span>
+            </button>
+            <button type="button" class="chart-toggle-button chart-toggle-points" id="chart_toggle_points" title="Toggle points" aria-label="Toggle points">
+              <span class="material-icons" aria-hidden="true">scatter_plot</span>
+            </button>
+          </div>
           <canvas class="chart-canvas" id="chart_canvas" height="340"></canvas>
         </div>
         <div class="analysis-table-wrapper" id="analysis_table_panel" style="margin-top: 0.8rem; display:none;">
@@ -8361,6 +8376,7 @@ def analyze_results():
             }}
             const xScaleType = timeScaleType();
             const timeAxis = getTimeAxisConfig(points);
+            const hasSecondaryAxis = series.length > 1 && !!config.y2Label;
             const datasets = series.map((line, index) => ({{
               label: line.label || `Series ${{index + 1}}`,
               data: line.points || [],
@@ -8370,7 +8386,8 @@ def analyze_results():
               showLine: chartShowLine,
               borderWidth: 2,
               parsing: false,
-              field: line.field || ""
+              field: line.field || "",
+              yAxisID: hasSecondaryAxis && index === 1 ? "y1" : "y"
             }}));
             try {{
               chartRef = new Chart(ctx, {{
@@ -8392,7 +8409,14 @@ def analyze_results():
                       min: timeAxis.min,
                       max: timeAxis.max
                     }},
-                    y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }}
+                    y: {{ title: {{ display: !!config.yLabel, text: config.yLabel }} }},
+                    y1: hasSecondaryAxis
+                      ? {{
+                          position: "right",
+                          title: {{ display: true, text: config.y2Label }},
+                          grid: {{ drawOnChartArea: false }}
+                        }}
+                      : {{ display: false }}
                   }},
                   plugins: {{
                     legend: {{ position: "bottom" }},
@@ -8626,6 +8650,7 @@ def analyze_results():
           }};
 
           let leafletPromise = null;
+          let heatPromise = null;
           const loadLeaflet = () => {{
             if (window.L) return Promise.resolve();
             if (leafletPromise) return leafletPromise;
@@ -8647,6 +8672,14 @@ def analyze_results():
               script.onerror = () => reject(new Error("Failed to load map library."));
               document.body.appendChild(script);
             }});
+            const loadHeat = () => {{
+              if (window.L && window.L.heatLayer) return Promise.resolve();
+              if (heatPromise) return heatPromise;
+              heatPromise = loadScript(
+                "https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"
+              );
+              return heatPromise;
+            }};
             leafletPromise = (async () => {{
               loadCss(
                 "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
@@ -8657,6 +8690,11 @@ def analyze_results():
                   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
                   "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
                 );
+                try {{
+                  await loadHeat();
+                }} catch (err) {{
+                  // Heat map is optional; ignore load failures.
+                }}
                 return;
               }} catch (err) {{
                 loadCss(
@@ -8861,6 +8899,7 @@ def analyze_results():
                   {{
                     xLabel: "Time",
                     yLabel: formatFieldLabel(fieldX),
+                    y2Label: formatFieldLabel(field2),
                     title: `${{formatFieldLabel(fieldX)}} & ${{formatFieldLabel(field2)}} over time`,
                     field: fieldX
                   }}
@@ -8936,6 +8975,7 @@ def analyze_results():
                 {{
                   xLabel: `Time (${{bucket}})`,
                   yLabel: formatFieldLabel(fieldX),
+                  y2Label: formatFieldLabel(field2),
                   title: `${{formatFieldLabel(fieldX)}} & ${{formatFieldLabel(field2)}} per ${{bucket}}`,
                   field: fieldX
                 }}
@@ -9011,6 +9051,11 @@ def analyze_results():
           let mapTrack = null;
           let mapLegend = null;
           let mapTrackEnabled = false;
+          let mapMarkersEnabled = true;
+          let mapHeatEnabled = false;
+          let mapSatelliteEnabled = false;
+          let mapHeatLayer = null;
+          let mapTileLayer = null;
           const generateMap = async () => {{
             const mapPanel = document.getElementById("map_panel");
             const mapMessage = document.getElementById("map_message");
@@ -9044,6 +9089,10 @@ def analyze_results():
               if (mapTrack) {{
                 mapTrack.remove();
                 mapTrack = null;
+              }}
+              if (mapHeatLayer) {{
+                mapHeatLayer.remove();
+                mapHeatLayer = null;
               }}
               if (mapLegend) {{
                 mapLegend.remove();
@@ -9080,6 +9129,10 @@ def analyze_results():
               if (mapTrack) {{
                 mapTrack.remove();
                 mapTrack = null;
+              }}
+              if (mapHeatLayer) {{
+                mapHeatLayer.remove();
+                mapHeatLayer = null;
               }}
               if (mapLegend) {{
                 mapLegend.remove();
@@ -9133,66 +9186,121 @@ def analyze_results():
                 zoomSnap: 0.5,
                 zoomControl: true
               }});
-              const tiles = L.tileLayer("https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png", {{
+              if (!mapRef.getPane("markerPaneTop")) {{
+                mapRef.createPane("markerPaneTop");
+                mapRef.getPane("markerPaneTop").style.zIndex = 650;
+              }}
+              const streetTiles = L.tileLayer("https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png", {{
                 maxZoom: 19,
                 attribution: "&copy; OpenStreetMap contributors"
               }});
-              tiles.on("tileerror", () => {{
+              const satelliteTiles = L.tileLayer(
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}",
+                {{
+                  maxZoom: 19,
+                  attribution: "Tiles &copy; Esri"
+                }}
+              );
+              mapTileLayer = (mapSatelliteEnabled ? satelliteTiles : streetTiles);
+              mapTileLayer.on("tileerror", () => {{
                 if (mapMessage) {{
                   mapMessage.textContent = "Map tiles could not be loaded. Check network access.";
                 }}
               }});
-              tiles.addTo(mapRef);
+              mapTileLayer.addTo(mapRef);
               mapLayer = L.layerGroup().addTo(mapRef);
 
-              const toggleControl = L.control({{ position: "topright" }});
-              toggleControl.onAdd = () => {{
-                const container = L.DomUtil.create("div", "leaflet-bar");
-                const button = L.DomUtil.create("button", "map-toggle-button", container);
-                button.type = "button";
-                button.title = "Expand map";
-                button.setAttribute("aria-label", "Expand map");
-                button.innerHTML = '<span class="material-icons" aria-hidden="true">open_in_full</span>';
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.on(button, "click", (event) => {{
-                  L.DomEvent.stop(event);
-                  const isExpanded = mapPanel.classList.toggle("map-expanded");
-                  button.innerHTML = isExpanded
+              const controlRow = L.control({{ position: "bottomleft" }});
+              controlRow.onAdd = () => {{
+                const container = L.DomUtil.create("div", "map-button-row");
+                const expandButton = L.DomUtil.create("button", "map-toggle-button", container);
+                expandButton.type = "button";
+                const setExpandState = () => {{
+                  const isExpanded = mapPanel.classList.contains("map-expanded");
+                  expandButton.innerHTML = isExpanded
                     ? '<span class="material-icons" aria-hidden="true">close_fullscreen</span>'
                     : '<span class="material-icons" aria-hidden="true">open_in_full</span>';
-                  button.title = isExpanded ? "Collapse map" : "Expand map";
-                  button.setAttribute("aria-label", button.title);
+                  expandButton.title = isExpanded ? "Collapse map" : "Expand map";
+                  expandButton.setAttribute("aria-label", expandButton.title);
+                }};
+                setExpandState();
+
+                const markersButton = L.DomUtil.create("button", "map-toggle-button", container);
+                markersButton.type = "button";
+                markersButton.title = "Toggle markers";
+                markersButton.setAttribute("aria-label", "Toggle markers");
+                markersButton.innerHTML = '<span class="material-icons" aria-hidden="true">place</span>';
+                markersButton.classList.toggle("is-active", mapMarkersEnabled);
+
+                const satelliteButton = L.DomUtil.create("button", "map-toggle-button", container);
+                satelliteButton.type = "button";
+                satelliteButton.title = "Toggle satellite view";
+                satelliteButton.setAttribute("aria-label", "Toggle satellite view");
+                satelliteButton.innerHTML = '<span class="material-icons" aria-hidden="true">satellite_alt</span>';
+                satelliteButton.classList.toggle("is-active", mapSatelliteEnabled);
+
+                const heatButton = L.DomUtil.create("button", "map-toggle-button", container);
+                heatButton.type = "button";
+                heatButton.title = "Toggle heat map";
+                heatButton.setAttribute("aria-label", "Toggle heat map");
+                heatButton.innerHTML = '<span class="material-icons" aria-hidden="true">local_fire_department</span>';
+                heatButton.classList.toggle("is-active", mapHeatEnabled);
+
+                const trackButton = L.DomUtil.create("button", "map-toggle-button", container);
+                trackButton.type = "button";
+                trackButton.title = "Toggle track";
+                trackButton.setAttribute("aria-label", "Toggle track");
+                trackButton.innerHTML = '<span class="material-icons" aria-hidden="true">timeline</span>';
+                if (mapTrackEnabled) trackButton.classList.add("is-active");
+
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.on(expandButton, "click", (event) => {{
+                  L.DomEvent.stop(event);
+                  mapPanel.classList.toggle("map-expanded");
+                  setExpandState();
                   setTimeout(() => mapRef.invalidateSize(true), 60);
                 }});
-                return container;
-              }};
-              toggleControl.addTo(mapRef);
-
-              const trackControl = L.control({{ position: "topright" }});
-              trackControl.onAdd = () => {{
-                const container = L.DomUtil.create("div", "leaflet-bar");
-                const button = L.DomUtil.create("button", "map-toggle-button", container);
-                button.type = "button";
-                button.title = "Toggle track";
-                button.setAttribute("aria-label", "Toggle track");
-                button.innerHTML = '<span class="material-icons" aria-hidden="true">timeline</span>';
-                if (mapTrackEnabled) button.classList.add("is-active");
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.on(button, "click", (event) => {{
+                L.DomEvent.on(heatButton, "click", (event) => {{
+                  L.DomEvent.stop(event);
+                  mapHeatEnabled = !mapHeatEnabled;
+                  heatButton.classList.toggle("is-active", mapHeatEnabled);
+                  generateMap();
+                }});
+                L.DomEvent.on(markersButton, "click", (event) => {{
+                  L.DomEvent.stop(event);
+                  mapMarkersEnabled = !mapMarkersEnabled;
+                  markersButton.classList.toggle("is-active", mapMarkersEnabled);
+                  generateMap();
+                }});
+                L.DomEvent.on(satelliteButton, "click", (event) => {{
+                  L.DomEvent.stop(event);
+                  mapSatelliteEnabled = !mapSatelliteEnabled;
+                  satelliteButton.classList.toggle("is-active", mapSatelliteEnabled);
+                  if (mapTileLayer) {{
+                    mapRef.removeLayer(mapTileLayer);
+                  }}
+                  mapTileLayer = (mapSatelliteEnabled ? satelliteTiles : streetTiles);
+                  mapTileLayer.addTo(mapRef);
+                }});
+                L.DomEvent.on(trackButton, "click", (event) => {{
                   L.DomEvent.stop(event);
                   mapTrackEnabled = !mapTrackEnabled;
-                  button.classList.toggle("is-active", mapTrackEnabled);
+                  trackButton.classList.toggle("is-active", mapTrackEnabled);
                   generateMap();
                 }});
                 return container;
               }};
-              trackControl.addTo(mapRef);
+              controlRow.addTo(mapRef);
             }}
 
             mapLayer.clearLayers();
             if (mapTrack) {{
               mapTrack.remove();
               mapTrack = null;
+            }}
+            if (mapHeatLayer) {{
+              mapHeatLayer.remove();
+              mapHeatLayer = null;
             }}
             if (mapLegend) {{
               mapLegend.remove();
@@ -9206,15 +9314,37 @@ def analyze_results():
             mapRef.whenReady(() => mapRef.invalidateSize(true));
             setTimeout(() => mapRef.invalidateSize(true), 150);
 
-            points.forEach((point) => {{
-              L.circleMarker([point.lat, point.lon], {{
-                radius: 4,
-                color: "#2563eb",
-                fillColor: "#60a5fa",
-                fillOpacity: 0.55,
-                weight: 1
-              }}).addTo(mapLayer);
-            }});
+            if (mapHeatEnabled && window.L && typeof window.L.heatLayer === "function") {{
+              if (mapMessage) mapMessage.textContent = "";
+              const heatPoints = points.map((point) => [point.lat, point.lon, 0.6]);
+              mapHeatLayer = window.L.heatLayer(heatPoints, {{
+                radius: 22,
+                blur: 18,
+                maxZoom: 17
+              }}).addTo(mapRef);
+            }} else if (mapHeatEnabled && mapMessage) {{
+              mapMessage.textContent = mapMarkersEnabled
+                ? "Heat map unavailable; showing points instead."
+                : "Heat map unavailable.";
+            }}
+
+            if (mapMarkersEnabled) {{
+              points.forEach((point) => {{
+                const marker = L.circleMarker([point.lat, point.lon], {{
+                  radius: 4,
+                  color: "#2563eb",
+                  fillColor: "#60a5fa",
+                  fillOpacity: 0.55,
+                  weight: 1,
+                  pane: "markerPaneTop"
+                }});
+                const label = point.timestamp
+                  ? new Date(point.timestamp).toLocaleString()
+                  : "Timestamp unavailable";
+                marker.bindPopup(label);
+                marker.addTo(mapLayer);
+              }});
+            }}
             if (track && points.length > 1) {{
               mapTrack = L.polyline(latLngs, {{ color: "#2563eb", weight: 2, opacity: 0.5 }}).addTo(mapRef);
             }}
