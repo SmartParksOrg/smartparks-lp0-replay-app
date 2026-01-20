@@ -47,10 +47,22 @@ docker compose up -d --build
 
 Open the app at `http://localhost:18080`.
 
+No-terminal option:
+- Windows: `scripts/run_docker_windows.bat`
+- macOS: `scripts/run_docker_macos.command` (run once: `chmod +x scripts/run_docker_macos.command`)
+
 To stop:
 ```bash
 docker compose down
 ```
+
+No-terminal stop:
+- Windows: `scripts/stop_docker_windows.bat`
+- macOS: `scripts/stop_docker_macos.command` (run once: `chmod +x scripts/stop_docker_macos.command`)
+
+No-terminal status:
+- Windows: `scripts/status_docker_windows.bat`
+- macOS: `scripts/status_docker_macos.command` (run once: `chmod +x scripts/status_docker_macos.command`)
 
 Optional environment settings:
 - `HOST`, `PORT`, `DEBUG` to control the bind address/port and debug mode.

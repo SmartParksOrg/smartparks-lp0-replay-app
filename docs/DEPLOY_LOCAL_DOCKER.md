@@ -9,6 +9,21 @@ Node.js is included in the container to support JavaScript decoders.
 docker compose up -d --build
 ```
 
+### Optional: one-click launcher (no terminal)
+
+- Windows: double-click `scripts/run_docker_windows.bat`
+- macOS: double-click `scripts/run_docker_macos.command`
+  - If macOS blocks it, right-click → Open, or run:
+    ```bash
+    chmod +x scripts/run_docker_macos.command
+    ```
+- To stop the app:
+  - Windows: `scripts/stop_docker_windows.bat`
+  - macOS: `scripts/stop_docker_macos.command` (run once: `chmod +x scripts/stop_docker_macos.command`)
+- To check status:
+  - Windows: `scripts/status_docker_windows.bat`
+  - macOS: `scripts/status_docker_macos.command` (run once: `chmod +x scripts/status_docker_macos.command`)
+
 ## 2) Open the app
 
 Browse to:
